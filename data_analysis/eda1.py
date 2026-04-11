@@ -2,14 +2,12 @@ import pandas as pd
 import numpy as np
 import os
 from PIL import Image
-import matplotlib.pyplot as plt
 
 # Data format: /train/pid00605/study1/view1_frontal.jpg
 
 training_data_path = "/resnick/groups/CS156b/from_central/data/train"
 training_labels_path = "/resnick/groups/CS156b/from_central/data/student_labels/train2023.csv"
 path_col = "Path"
-output_pdf = "data_summary.pdf"
 
 label_cols = ["No Finding", "Enlarged Cardiomediastinum", "Cardiomegaly", "Lung Opacity",
                 "Pneumonia", "Pleural Effusion", "Pleural Other", "Fracture", "Support Devices"]
@@ -17,13 +15,19 @@ label_cols = ["No Finding", "Enlarged Cardiomediastinum", "Cardiomegaly", "Lung 
 
 # load data
 df = pd.read_csv(training_labels_path)
-df["pid"] = df[path_col].str.split("/").str[1]
-df["study"] = df[path_col].str.split("/").str[2]
+path_parts = df[path_col].str.split("/", expand=True)
+df["pid"], df["study"] = path_parts[1], path_parts[2]
 df["path"] = df[path_col].str.replace("^train/", training_data_path + "/", regex=True)
 
 
 # verify per patient label consistency
-inconsistent = [pid for pid, g in df.groupby("pid") if g[label_cols].nunique().gt(1).any()]
+sort_idx = np.argsort(df["pid"].values)
+p_sorted = df["pid"].values[sort_idx]
+l_sorted = df[label_cols].fillna(-999).values[sort_idx]
+is_same_pid = (p_sorted[:-1] == p_sorted[1:])
+is_diff_label = np.any(l_sorted[:-1] != l_sorted[1:], axis=1)
+inconsistent = np.unique(p_sorted[:-1][is_same_pid & is_diff_label])
+
 patient_df = df.drop_duplicates("pid")
 
 # create label summary
@@ -40,13 +44,16 @@ for col in label_cols:
 spp = df.groupby("pid")["study"].nunique()
 ipp = df.groupby("pid").size()
 
-# load images
-images = df["path"]
+# load sample of images
+sample_pids = np.random.choice(df["pid"].unique(), size=500, replace=False)
+sample_df = df[df["pid"].isin(sample_pids)]
+
 widths, heights, failed = [], [], []
-for image in images:
+for image in sample_df["path"]:
     try:
-        im = Image.open(image)
-        widths.append(im.width); heights.append(im.height)
+        with Image.open(image) as im:
+            widths.append(im.width)
+            heights.append(im.height)
     except Exception as e:
         failed.append(image)
 
