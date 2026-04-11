@@ -56,7 +56,7 @@ avg_h = np.mean(heights) if heights else 0
 lines = [
     "DATA SUMMARY (FRONTAL ONLY):",
     f"Patients (with frontal images) : {df['pid'].nunique()}",
-    f"Unique Clinical Studies        : {df['study_id'].nunique()}",
+    f"Unique Studies                 : {df['study_id'].nunique()}",
     f"Total Frontal Image Files      : {len(df)}",
     "",
     f"Sampled Readable Images        : {len(widths)}",
