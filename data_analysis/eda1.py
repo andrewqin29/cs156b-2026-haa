@@ -15,34 +15,27 @@ label_cols = ["No Finding", "Enlarged Cardiomediastinum", "Cardiomegaly", "Lung 
 
 # load data
 df = pd.read_csv(training_labels_path)
+# filter for frontal images only for now
+df = df[df[path_col].str.contains("frontal", case=False)].copy()
+
 path_parts = df[path_col].str.split("/", expand=True)
 df["pid"], df["study"] = path_parts[1], path_parts[2]
 df["path"] = df[path_col].str.replace("^train/", training_data_path + "/", regex=True)
+df["study_id"] = df["pid"] + "_" + df["study"]
 
-
-# verify per patient label consistency
-sort_idx = np.argsort(df["pid"].values)
-p_sorted = df["pid"].values[sort_idx]
-l_sorted = df[label_cols].fillna(-999).values[sort_idx]
-is_same_pid = (p_sorted[:-1] == p_sorted[1:])
-is_diff_label = np.any(l_sorted[:-1] != l_sorted[1:], axis=1)
-inconsistent = np.unique(p_sorted[:-1][is_same_pid & is_diff_label])
-
-patient_df = df.drop_duplicates("pid")
+study_df = df.drop_duplicates("study_id")
 
 # create label summary
 label_dets = {}
 for col in label_cols:
-    vc = patient_df[col].value_counts(dropna=False)
+    vc = study_df[col].value_counts(dropna=False)
     label_dets[col] = {
         "1.0": vc.get(1.0, 0),
         "0.0":  vc.get(0.0, 0),
         "-1.0": vc.get(-1.0, 0),
-        "NaN":  patient_df[col].isna().sum(),
+        "NaN":  study_df[col].isna().sum(),
     }
 
-spp = df.groupby("pid")["study"].nunique()
-ipp = df.groupby("pid").size()
 
 # load sample of images
 sample_pids = np.random.choice(df["pid"].unique(), size=500, replace=False)
@@ -57,17 +50,24 @@ for image in sample_df["path"]:
     except Exception as e:
         failed.append(image)
 
+avg_w = np.mean(widths) if widths else 0
+avg_h = np.mean(heights) if heights else 0
+
 lines = [
-    "DATA SUMMARY:",
-    f"Patients : {df['pid'].nunique()}",
-    f"Studies : {df['study'].nunique()}",
-    f"Images : {len(df)}", 
-    f"Patients with inconsistent labels: {len(inconsistent)}",
-    f"Studies/patient — min {spp.min()}, max {spp.max()}, mean {spp.mean():.1f}",
-    f"Images/patient  — min {ipp.min()}, max {ipp.max()}, mean {ipp.mean():.1f}",
+    "DATA SUMMARY (FRONTAL ONLY):",
+    f"Patients (with frontal images) : {df['pid'].nunique()}",
+    f"Unique Clinical Studies        : {df['study_id'].nunique()}",
+    f"Total Frontal Image Files      : {len(df)}",
     "",
-    f"Readable images: {len(widths)}",
-    f"Unreadable images: {len(failed)}"
+    f"Sampled Readable Images        : {len(widths)}",
+    f"Sampled Failed Images          : {len(failed)}",
+    f"Avg Resolution (Sample)        : {avg_w:.0f}x{avg_h:.0f}px",
+    "",
+    f"{'Pathology':<30} {'Pos':>8} {'Neg':>8} {'Unc':>8} {'NaN':>8}",
 ]
+
+for col in label_cols:
+    d = label_dets[col]
+    lines.append(f"{col:<30} {d['1.0']:>8} {d['0.0']:>8} {d['-1.0']:>8} {d['NaN']:>8}")
 
 print("\n".join(lines))
