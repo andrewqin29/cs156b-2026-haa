@@ -71,3 +71,7 @@ for col in label_cols:
     lines.append(f"{col:<30} {d['1.0']:>8} {d['0.0']:>8} {d['-1.0']:>8} {d['NaN']:>8}")
 
 print("\n".join(lines))
+
+output_file = "eda1.txt"
+with open(output_file, "w") as f:
+    f.write("\n".join(lines))
