@@ -65,7 +65,7 @@ mode_counts = Counter(modes)
 lines = [
     "DATA SUMMARY:",
     f"Patients : {df['pid'].nunique()}",
-    f"Unique Studies : {df['study'].nunique()}",
+    f"Unique Studies : {df['study_id'].nunique()}",
     f"Images : {len(df)}",
     "",
     f"Readable images: {len(widths)}",
