@@ -1,0 +1,19 @@
+DATA SUMMARY (FRONTAL ONLY):
+Patients (with frontal images) : 51628
+Unique Studies                 : 149587
+Total Frontal Image Files      : 152298
+
+Sampled Readable Images        : 1665
+Sampled Failed Images          : 0
+Avg Resolution (Sample)        : 2746x2300px
+
+Pathology                           Pos      Neg      Unc      NaN
+No Finding                        13947     6583   129048        9
+Enlarged Cardiomediastinum         6233    10780    12629   119945
+Cardiomegaly                      17155     6867     8543   117022
+Lung Opacity                      74067     4139     3777    67604
+Pneumonia                          2053    14166     1277   132091
+Pleural Effusion                  60238     8488    19278    61583
+Pleural Other                      2042     1574       78   145893
+Fracture                           5572      823     2020   141172
+Support Devices                   85598     1779     3885    58325
