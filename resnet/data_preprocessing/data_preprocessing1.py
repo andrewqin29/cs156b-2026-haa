@@ -1,7 +1,7 @@
 """
 Initial data preprocessing script
  - resize images to single standard (224 x 224 to be used with pretrained ResNet)
- - fill Uncertain values (-1.0s) with 1.0s
+ - fill Uncertain values (-1.0s) with -999 (to be later masked)
  - keep NaNs for now (relabel as -999)
 
  source: https://medium.com/@maahip1304/the-complete-guide-to-image-preprocessing-techniques-in-python-dca30804550c
@@ -22,17 +22,14 @@ output_folder = "/resnick/groups/CS156b/from_central/2026/haa/preprocessed_front
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 
-# load data
 df = pd.read_csv(training_labels_path)
 df = df[df["Path"].str.contains("frontal", case=False)].copy()
 
 label_cols = ["No Finding", "Enlarged Cardiomediastinum", "Cardiomegaly", "Lung Opacity",
               "Pneumonia", "Pleural Effusion", "Pleural Other", "Fracture", "Support Devices"]
 
-#relabel -1 (uncertain) with 1 (treat as positive case)
-df[label_cols] = df[label_cols].replace(-1.0, 1.0)
+df[label_cols] = df[label_cols].replace(-1.0, -999)
 
-#relabel NaNs with -999
 df[label_cols] = df[label_cols].fillna(-999)
 
 image_size = (224, 224)
