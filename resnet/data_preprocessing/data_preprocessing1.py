@@ -2,6 +2,7 @@
 Initial data preprocessing script
  - resize images to single standard (224 x 224 to be used with pretrained ResNet)
  - fill Uncertain values (-1.0s) with -999 (to be later masked)
+    - v1 cast to 1.0s, difference here is we mask the uncertain labels
  - keep NaNs for now (relabel as -999)
 
  source: https://medium.com/@maahip1304/the-complete-guide-to-image-preprocessing-techniques-in-python-dca30804550c
@@ -17,7 +18,7 @@ from tqdm import tqdm
 
 training_data_path = "/resnick/groups/CS156b/from_central/data/train"
 training_labels_path = "/resnick/groups/CS156b/from_central/data/student_labels/train2023.csv"
-output_folder = "/resnick/groups/CS156b/from_central/2026/haa/preprocessed_front_images_1"
+output_folder = "/resnick/groups/CS156b/from_central/2026/haa/resnet_data/preprocessed_front_resnet"
 
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
@@ -54,5 +55,5 @@ for idx, row in tqdm(df.iterrows(), total=len(df)):
 
 df["preprocessed_path"] = new_paths
 df_final = df.dropna(subset=["preprocessed_path"])
-df_final.to_csv("preprocessed_labels.csv", index=False)
+df_final.to_csv("/resnick/groups/CS156b/from_central/2026/haa/resnet_data/preprocessed_labels_v2.csv", index=False)
 print("Preprocessing Complete.")
