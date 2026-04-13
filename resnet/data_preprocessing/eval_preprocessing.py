@@ -3,7 +3,7 @@ import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
-test_ids_path = "/groups/CS156b/data/student_labels/test_ids.csv"
+test_ids_path = "/resnick/groups/CS156b/data/student_labels/test_ids.csv"
 test_data_path = "/groups/CS156b/data/test"
 output_folder = "/resnick/groups/CS156b/from_central/2026/haa/preprocessed_test_images"
 
