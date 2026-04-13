@@ -157,6 +157,10 @@ def main():
     args = parse_args()
     torch.manual_seed(args.seed)
     os.makedirs(args.output_dir, exist_ok=True)
+
+    metrics_path = os.path.join(args.output_dir, "metrics.csv")
+    with open(metrics_path, "w") as f:
+        f.write("epoch,train_loss,train_auc,val_loss,val_auc\n")
  
     device = (
         "cuda" if torch.cuda.is_available()
@@ -219,6 +223,9 @@ def main():
             f"Val loss={val_loss:.4f} AUC={val_auc:.4f}  "
             f"[{elapsed:.0f}s]"
         )
+
+        with open(metrics_path, "a") as f:
+            f.write(f"{epoch},{train_loss:.4f},{train_auc:.4f},{val_loss:.4f},{val_auc:.4f}\n")
  
         if val_auc > best_auc:
             best_auc = val_auc
