@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
 
-from finetune_resnet50 import build_model, LABEL_COLS
+from resnet.train.finetune_resnet50 import build_model, LABEL_COLS
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]

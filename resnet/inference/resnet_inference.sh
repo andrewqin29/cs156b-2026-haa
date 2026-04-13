@@ -21,7 +21,7 @@ mkdir -p logs
 
 cd /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet
 
-/resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python inference.py \
+/resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python resnet_inference.py \
     --checkpoint checkpoints/best_model.pt \
     --csv /resnick/groups/CS156b/from_central/2026/haa/preprocessed_test_labels.csv \
     --output submission.csv
