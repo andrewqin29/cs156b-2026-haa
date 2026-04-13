@@ -6,7 +6,7 @@
 #SBATCH --mem=64G
 #SBATCH --partition=gpu
 
-#SBATCH --time=03:00:00
+#SBATCH --time=04:00:00
 
 #SBATCH -J "resnet_finetune"
 #SBATCH --mail-user=hgaston@caltech.edu
@@ -22,7 +22,8 @@ mkdir -p logs
 cd /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet
 
 /resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python finetune_resnet50.py \
-    --epochs 15 \
+    --epochs 20 \
     --batch_size 32 \
-    --output_dir checkpoints \
-    --csv /resnick/groups/CS156b/from_central/2026/haa/preprocessed_labels1.csv
+    --lr 5e-5 \
+    --output_dir checkpoints_resnet_v2 \
+    --csv /resnick/groups/CS156b/from_central/2026/haa/resnet_data/preprocessed_labels_v2.csv

@@ -1,5 +1,6 @@
 """
-fine-tune ResNet50 for use with data_preprocessing1.py
+finetune ResNet50
+use with data_preprocessing1.py
 """
 
 import argparse
@@ -81,18 +82,22 @@ def build_model(backbone: str = "resnet50", freeze_backbone: bool = False) -> nn
             param.requires_grad = False
 
     in_features = model.fc.in_features
-    model.fc = nn.Linear(in_features, NUM_CLASSES)
- 
+
+    model.fc = nn.Sequential(
+        nn.Dropout(p=0.3),
+        nn.Linear(in_features, NUM_CLASSES)
+    )
+    
     return model
 
-def masked_bce_loss(logits: torch.Tensor, labels: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-    loss_fn = nn.BCEWithLogitsLoss(reduction="none")
+def masked_bce_loss(logits, labels, mask, pos_weight=None):
+    loss_fn = nn.BCEWithLogitsLoss(reduction="none", pos_weight=pos_weight)
     element_loss = loss_fn(logits, labels)
-    masked = element_loss * mask 
+    masked = element_loss * mask
     denom = mask.sum().clamp(min=1)
     return masked.sum() / denom
 
-def run_epoch(model, loader, optimizer, device, training: bool):
+def run_epoch(model, loader, optimizer, device, training: bool, pos_weight=None):
     model.train() if training else model.eval()
     total_loss = 0.0
     all_logits, all_labels, all_masks = [], [], []
@@ -105,7 +110,8 @@ def run_epoch(model, loader, optimizer, device, training: bool):
             masks  = masks.to(device)
  
             logits = model(imgs)
-            loss   = masked_bce_loss(logits, labels, masks)
+
+            loss = masked_bce_loss(logits, labels, masks, pos_weight=pos_weight)
  
             if training:
                 optimizer.zero_grad()
@@ -168,8 +174,12 @@ def main():
         else "cpu"
     )
     print(f"Device: {device}")
+
+    pos_weight = torch.tensor([
+        0.4727, 1.7229, 0.4004, 0.0560, 6.8783,
+        0.1410, 0.7660, 0.1487, 0.0209,
+    ]).to(device)
  
-    # ── Data ──
     df = pd.read_csv(args.csv)
     n_val = int(len(df) * args.val_split)
     n_train = len(df) - n_val
@@ -188,20 +198,23 @@ def main():
     val_loader   = DataLoader(val_ds,   batch_size=args.batch_size,
                               shuffle=False, num_workers=args.num_workers, pin_memory=True)
  
-    print(f"Train: {len(train_ds):,}  |  Val: {len(val_ds):,}")
+    print(f"Train: {len(train_ds):,},  Val: {len(val_ds):,}")
  
     model = build_model(freeze_backbone=True).to(device)
     optimizer = torch.optim.AdamW(model.fc.parameters(), lr=args.lr * 10,
                                   weight_decay=args.weight_decay)
  
     best_auc = 0.0
+    patience = 3
+    epochs_no_improve = 0
+
     best_path = os.path.join(args.output_dir, "best_model.pt")
  
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
  
         if epoch == args.warmup_epochs + 1:
-            print("\n── Unfreezing backbone ──")
+            print("\n Unfreezing")
             for param in model.parameters():
                 param.requires_grad = True
             optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr,
@@ -210,8 +223,8 @@ def main():
                 optimizer, T_max=args.epochs - args.warmup_epochs
             )
  
-        train_loss, train_auc = run_epoch(model, train_loader, optimizer, device, training=True)
-        val_loss,   val_auc   = run_epoch(model, val_loader,   optimizer, device, training=False)
+        train_loss, train_auc = run_epoch(model, train_loader, optimizer, device, training=True, pos_weight=pos_weight)
+        val_loss,   val_auc   = run_epoch(model, val_loader,   optimizer, device, training=False, pos_weight=pos_weight)
  
         if epoch > args.warmup_epochs and 'scheduler' in dir():
             scheduler.step()
@@ -229,11 +242,17 @@ def main():
  
         if val_auc > best_auc:
             best_auc = val_auc
+            epochs_no_improve = 0
             torch.save({"epoch": epoch, "model_state": model.state_dict(),
                         "val_auc": val_auc, "args": vars(args)}, best_path)
-            print(f"  ✓ New best saved (AUC={best_auc:.4f})")
+            print(f"  New best saved (AUC={best_auc:.4f})")
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
  
-    print(f"\nTraining done. Best val AUC: {best_auc:.4f}  →  {best_path}")
+    print(f"\nTraining done. Best val AUC: {best_auc:.4f}:  {best_path}")
  
  
 if __name__ == "__main__":
