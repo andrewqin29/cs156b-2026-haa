@@ -4,7 +4,7 @@ from PIL import Image
 from tqdm import tqdm
 
 test_ids_path = "/resnick/groups/CS156b/from_central/data/student_labels/test_ids.csv"
-test_data_path = "/groups/CS156b/data/test"
+test_data_path = "/resnick/groups/CS156b/from_central/data/test"
 output_folder = "/resnick/groups/CS156b/from_central/2026/haa/preprocessed_test_images"
 
 os.makedirs(output_folder, exist_ok=True)
