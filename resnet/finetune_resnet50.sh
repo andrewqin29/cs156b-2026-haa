@@ -19,7 +19,10 @@
 
 mkdir -p logs
 
+cd /resnick/groups/CS156b/from_central/2026/haa
+
 /resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python finetune_resnet50.py \
     --epochs 15 \
     --batch_size 32 \
-    --output_dir checkpoints
+    --output_dir checkpoints \
+    --csv /resnick/groups/CS156b/from_central/2026/haa/preprocessed_labels1.csv
