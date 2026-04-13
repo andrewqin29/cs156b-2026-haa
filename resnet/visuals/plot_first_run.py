@@ -1,5 +1,5 @@
 """
-plot_training_curves.py — generate training curves from metrics.csv
+plot_training_curves.py — generate training curves from first_run.csv
 """
 
 import argparse

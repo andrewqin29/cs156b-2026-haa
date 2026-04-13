@@ -1,9 +1,7 @@
-"""
-inference.py — run inference with trained ResNet50 and output submission CSV
-"""
 
 import argparse
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -13,9 +11,11 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
 
-import sys
 sys.path.append('/resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/train')
 from finetune_resnet50 import build_model, LABEL_COLS
+
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 class TestDataset(Dataset):
     def __init__(self, df, transform=None):
@@ -43,13 +43,11 @@ def get_transform():
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--checkpoint",   required=True,
-                   help="Path to best_model.pt")
-    p.add_argument("--csv",          required=True,
-                   help="Path to preprocessed_test_labels.csv")
-    p.add_argument("--output",       default="submission.csv")
-    p.add_argument("--batch_size",   type=int, default=32)
-    p.add_argument("--num_workers",  type=int, default=4)
+    p.add_argument("--checkpoint", required=True)
+    p.add_argument("--csv",        required=True)
+    p.add_argument("--output",     default="submission.csv")
+    p.add_argument("--batch_size", type=int, default=32)
+    p.add_argument("--num_workers",type=int, default=4)
     return p.parse_args()
 
 
@@ -63,7 +61,6 @@ def main():
     )
     print(f"Device: {device}")
 
-    # Load model
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model = build_model().to(device)
     model.load_state_dict(checkpoint["model_state"])
@@ -71,7 +68,6 @@ def main():
     print(f"Loaded checkpoint from epoch {checkpoint['epoch']} "
           f"(val AUC={checkpoint['val_auc']:.4f})")
 
-    # Dataset
     df = pd.read_csv(args.csv)
     ds = TestDataset(df, transform=get_transform())
     loader = DataLoader(ds, batch_size=args.batch_size,
@@ -86,10 +82,9 @@ def main():
             logits = model(imgs)
             probs = torch.sigmoid(logits).cpu().numpy()
             all_preds.append(probs)
-            all_ids.extend(ids.numpy() if isinstance(ids, torch.Tensor) else ids)
+            all_ids.extend(ids if not isinstance(ids, torch.Tensor) else ids.numpy().tolist())
 
     all_preds = np.concatenate(all_preds, axis=0)
-
     submission = pd.DataFrame(all_preds, columns=LABEL_COLS)
     submission.insert(0, "Id", all_ids)
     submission.to_csv(args.output, index=False)
