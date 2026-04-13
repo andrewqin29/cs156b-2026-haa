@@ -15,7 +15,7 @@
 #SBATCH --mail-type=FAIL
 
 #SBATCH --output=logs/slurm-%j.out
-#SBATCH --error=logs/slurm-%j.errd
+#SBATCH --error=logs/slurm-%j.err
 
 mkdir -p logs
 

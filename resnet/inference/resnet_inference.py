@@ -27,7 +27,11 @@ class TestDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
-        img = Image.open(row["preprocessed_path"]).convert("L").convert("RGB")
+        path = row["preprocessed_path"].replace(
+            '/resnick/groups/CS156b/from_central/2026/haa/preprocessed_test_images/',
+            '/resnick/groups/CS156b/from_central/2026/haa/resnet_data/preprocessed_test_images/'
+        )
+        img = Image.open(path).convert("L").convert("RGB")
         if self.transform:
             img = self.transform(img)
         return img, row["Id"]
