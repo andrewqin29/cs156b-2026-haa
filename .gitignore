@@ -1,5 +1,11 @@
 checkpoints/
 logs/
 *.csv
-__pycache__/
 *.pt
+__pycache__/
+*.pyc
+*.pth
+preprocessed_*/
+*.out
+*.err
+.DS_Store
