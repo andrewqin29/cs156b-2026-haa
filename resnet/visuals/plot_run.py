@@ -9,7 +9,7 @@ import matplotlib.ticker as ticker
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--metrics", default="first_run.csv")
+    p.add_argument("--metrics", default="second_run.csv")
     p.add_argument("--output",  default="training_curves.png")
     p.add_argument("--warmup_epochs", type=int, default=2)
     return p.parse_args()
