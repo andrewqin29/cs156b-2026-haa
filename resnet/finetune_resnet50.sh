@@ -19,7 +19,7 @@
 
 mkdir -p logs
 
-cd /resnick/groups/CS156b/from_central/2026/haa
+cd /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet
 
 /resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python finetune_resnet50.py \
     --epochs 15 \
