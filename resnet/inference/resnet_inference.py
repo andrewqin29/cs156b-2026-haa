@@ -89,6 +89,11 @@ def main():
             all_ids.extend(ids if not isinstance(ids, torch.Tensor) else ids.numpy().tolist())
 
     all_preds = np.concatenate(all_preds, axis=0)
+    # change no finding logic to incorporate other predictions
+    other_cols = [i for i, col in enumerate(LABEL_COLS) if col != "No Finding"]
+    no_finding_idx = LABEL_COLS.index("No Finding")
+    all_preds[:, no_finding_idx] = 1 - all_preds[:, other_cols].max(axis=1)
+    
     submission = pd.DataFrame(all_preds, columns=LABEL_COLS)
     submission.insert(0, "Id", all_ids)
     submission.to_csv(args.output, index=False)
