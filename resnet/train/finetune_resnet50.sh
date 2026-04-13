@@ -26,5 +26,5 @@ cd /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/train
     --epochs 20 \
     --batch_size 32 \
     --lr 5e-5 \
-    --output_dir /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/checkpoints_resnet_v2
+    --output_dir /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/checkpoints_resnet_v2 \
     --csv /resnick/groups/CS156b/from_central/2026/haa/resnet_data/preprocessed_labels_v2.csv
