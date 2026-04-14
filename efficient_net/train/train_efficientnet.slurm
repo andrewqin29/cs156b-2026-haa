@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=64G
 #SBATCH --partition=gpu
-#SBATCH --time=08:00:00
+#SBATCH --time=23:59:00
 
 #SBATCH -J "effnet_train"
 #SBATCH --mail-type=BEGIN

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import os
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +39,41 @@ NUM_CLASSES = len(LABEL_COLS)
 
 def _progress(iterable, leave=False):
     return iterable
+
+
+def _pick_path_column(df: pd.DataFrame) -> str:
+    if "preprocessed_path" in df.columns:
+        return "preprocessed_path"
+    if "abs_path" in df.columns:
+        return "abs_path"
+    raise ValueError("Manifest must contain either 'preprocessed_path' or 'abs_path'.")
+
+
+def _validate_manifest(df: pd.DataFrame, missing_value: float, name: str) -> pd.DataFrame:
+    missing_cols = [c for c in LABEL_COLS if c not in df.columns]
+    if missing_cols:
+        raise ValueError(f"{name}: missing label columns: {missing_cols}")
+
+    path_col = _pick_path_column(df)
+
+    for c in LABEL_COLS:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df[LABEL_COLS] = df[LABEL_COLS].fillna(missing_value)
+
+    before = len(df)
+    df = df[df[path_col].notna()].copy()
+    df[path_col] = df[path_col].astype(str)
+
+    exists = df[path_col].map(lambda p: Path(p).exists())
+    df = df[exists].reset_index(drop=True)
+    dropped = before - len(df)
+    if dropped > 0:
+        print(f"[WARN] {name}: dropped {dropped} rows with missing/nonexistent image files")
+
+    if len(df) == 0:
+        raise ValueError(f"{name}: no usable rows after validation")
+
+    return df
 
 
 def _binary_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -114,12 +150,21 @@ def get_transforms(image_size: int, train: bool):
 
 
 def build_model(model_name: str = "efficientnet_b0", dropout: float = 0.3) -> nn.Module:
-    if model_name == "efficientnet_b0":
-        model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1)
-    elif model_name == "efficientnet_b3":
-        model = models.efficientnet_b3(weights=models.EfficientNet_B3_Weights.IMAGENET1K_V1)
-    else:
-        raise ValueError(f"Unsupported model_name: {model_name}")
+    try:
+        if model_name == "efficientnet_b0":
+            model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1)
+        elif model_name == "efficientnet_b3":
+            model = models.efficientnet_b3(weights=models.EfficientNet_B3_Weights.IMAGENET1K_V1)
+        else:
+            raise ValueError(f"Unsupported model_name: {model_name}")
+    except Exception as e:
+        warnings.warn(f"Could not load pretrained weights ({e}); falling back to random init.")
+        if model_name == "efficientnet_b0":
+            model = models.efficientnet_b0(weights=None)
+        elif model_name == "efficientnet_b3":
+            model = models.efficientnet_b3(weights=None)
+        else:
+            raise ValueError(f"Unsupported model_name: {model_name}")
 
     in_features = model.classifier[1].in_features
     model.classifier = nn.Sequential(
@@ -193,12 +238,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--train_csv",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/train_manifest_preprocessed.csv"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data/manifests_preprocessed/train_manifest_preprocessed.csv"),
     )
     p.add_argument(
         "--val_csv",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/val_manifest_preprocessed.csv"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data/manifests_preprocessed/val_manifest_preprocessed.csv"),
     )
     p.add_argument("--model_name", default="efficientnet_b0", choices=["efficientnet_b0", "efficientnet_b3"])
     p.add_argument("--image_size", type=int, default=224)
@@ -242,8 +287,9 @@ def main() -> None:
         if not p.exists():
             raise FileNotFoundError(f"Missing input CSV: {p}")
 
-    train_df = pd.read_csv(args.train_csv)
-    val_df = pd.read_csv(args.val_csv)
+    train_df = _validate_manifest(pd.read_csv(args.train_csv), args.missing_value, "train_csv")
+    val_df = _validate_manifest(pd.read_csv(args.val_csv), args.missing_value, "val_csv")
+    print(f"Usable rows -> train: {len(train_df)}, val: {len(val_df)}")
 
     train_ds = XrayDataset(
         train_df,
@@ -256,19 +302,20 @@ def main() -> None:
         missing_value=args.missing_value,
     )
 
+    pin = device == "cuda"
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=True,
+        pin_memory=pin,
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
-        pin_memory=True,
+        pin_memory=pin,
     )
 
     model = build_model(model_name=args.model_name, dropout=args.dropout).to(device)
@@ -280,6 +327,7 @@ def main() -> None:
     best_auc = -1.0
     epochs_no_improve = 0
     best_path = args.output_dir / "best_model.pt"
+    final_path = args.output_dir / "final_model.pt"
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
@@ -303,6 +351,17 @@ def main() -> None:
                 f"{epoch},{train_loss:.6f},{train_auc:.6f},{val_loss:.6f},{val_auc:.6f}\n"
             )
 
+        torch.save(
+            {
+                "epoch": epoch,
+                "model_state": model.state_dict(),
+                "val_auc": val_auc,
+                "args": vars(args),
+                "label_cols": LABEL_COLS,
+            },
+            final_path,
+        )
+
         valid_auc = not np.isnan(val_auc)
         improved = valid_auc and (val_auc > best_auc)
         if improved:
@@ -324,6 +383,10 @@ def main() -> None:
             if epochs_no_improve >= args.patience:
                 print(f"Early stopping at epoch {epoch}")
                 break
+
+    if not best_path.exists() and final_path.exists():
+        torch.save(torch.load(final_path, map_location="cpu"), best_path)
+        print(f"[WARN] best_model.pt not selected by AUC; copied from final_model.pt")
 
     print(f"Done. Best val AUC: {best_auc:.4f}")
 
