@@ -9,3 +9,12 @@ preprocessed_*/
 *.out
 *.err
 .DS_Store
+
+# EfficientNet generated artifacts (keep large files out of git)
+efficient_net/logs/
+efficient_net/checkpoints/
+efficient_net/**/*.pt
+efficient_net/**/*.pth
+efficient_net/**/*.ckpt
+efficient_net/**/preprocessed_images/
+efficient_net/**/manifests_preprocessed/

@@ -11,15 +11,15 @@
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/efficient_net/logs/data-prep-%j.out
-#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/efficient_net/logs/data-prep-%j.err
+#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/askumar/cs156b-2026-haa/efficient_net/logs/data-prep-%j.out
+#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/askumar/cs156b-2026-haa/efficient_net/logs/data-prep-%j.err
 
 set -euo pipefail
 
 # ---- Paths (edit only if your layout changes) ----
-REPO_ROOT="/resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa"
-SCRIPT_DIR="${REPO_ROOT}/efficient_net/data_preprocessing"
-OUT_ROOT="/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data}"
 LOG_DIR="${REPO_ROOT}/efficient_net/logs"
 
 mkdir -p "${LOG_DIR}"
