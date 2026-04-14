@@ -11,15 +11,17 @@
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/askumar/cs156b-2026-haa/efficient_net/logs/data-prep-%j.out
-#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/askumar/cs156b-2026-haa/efficient_net/logs/data-prep-%j.err
+#SBATCH --output=data-prep-%j.out
+#SBATCH --error=data-prep-%j.err
 
 set -euo pipefail
 
-# ---- Paths (edit only if your layout changes) ----
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data}"
+# ---- Paths ----
+# On some clusters, Slurm runs a spooled copy of this script from /var/spool,
+# so do NOT derive paths from BASH_SOURCE. Use the submission directory.
+REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
+SCRIPT_DIR="${REPO_ROOT}/efficient_net/data_preprocessing"
+OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data}"
 LOG_DIR="${REPO_ROOT}/efficient_net/logs"
 
 mkdir -p "${LOG_DIR}"
@@ -33,20 +35,32 @@ cd "${SCRIPT_DIR}"
 # Option 2: default to python on PATH
 PYTHON_BIN=${PYTHON_BIN:-python}
 
-# Optional conda activation (if provided at submit time)
-# Example:
-# sbatch --export=ALL,CONDA_SH=/path/miniconda3/etc/profile.d/conda.sh,CONDA_ENV=cs156b efficientnet_data_prep.slurm
-if [[ -n "${CONDA_SH:-}" && -n "${CONDA_ENV:-}" ]]; then
+# ---- Conda (batch-safe) ----
+# In Slurm batch mode, `conda activate` can fail unless the shell was initialized
+# (i.e., `conda init`). Prefer `conda run`, which does not require shell init.
+if [[ -n "${CONDA_SH:-}" ]]; then
   # shellcheck disable=SC1090
   source "${CONDA_SH}"
-  conda activate "${CONDA_ENV}"
-  PYTHON_BIN=${PYTHON_BIN:-python}
 fi
 
-echo "Using Python: ${PYTHON_BIN}"
+CONDA_ENV_NAME="${CONDA_ENV:-cs156b-efficientnet}"
+
+if command -v conda >/dev/null 2>&1; then
+  # If conda run works, use it for all python invocations.
+  if conda run -n "${CONDA_ENV_NAME}" python -c "import sys; print(sys.version)" >/dev/null 2>&1; then
+    PYTHON_BIN=(conda run -n "${CONDA_ENV_NAME}" python)
+  else
+    echo "WARNING: conda found but 'conda run' failed; running with ${PYTHON_BIN} on PATH"
+    PYTHON_BIN=("${PYTHON_BIN}")
+  fi
+else
+  PYTHON_BIN=("${PYTHON_BIN}")
+fi
+
+echo "Using Python: ${PYTHON_BIN[*]}"
 
 # ---- Preflight checks ----
-"${PYTHON_BIN}" -c "import sys; print('Python:', sys.version); import pandas, numpy, PIL; print('deps ok')"
+"${PYTHON_BIN[@]}" -c "import sys; print('Python:', sys.version); import pandas, numpy, PIL; print('deps ok')"
 
 for p in \
   /resnick/groups/CS156b/from_central/data/train \
@@ -60,13 +74,13 @@ for p in \
 done
 
 # 1) Build train/val/test manifests (CSVs)
-"${PYTHON_BIN}" build_efficientnet_manifests.py \
+"${PYTHON_BIN[@]}" build_efficientnet_manifests.py \
   --output_root "${OUT_ROOT}" \
   --val_split 0.15 \
   --seed 42
 
 # 2) Build preprocessed image cache + updated manifests with preprocessed_path
-"${PYTHON_BIN}" prepare_efficientnet_images.py \
+"${PYTHON_BIN[@]}" prepare_efficientnet_images.py \
   --manifest_root "${OUT_ROOT}/manifests" \
   --output_root "${OUT_ROOT}" \
   --image_size 224 \
