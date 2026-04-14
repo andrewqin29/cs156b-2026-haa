@@ -10,3 +10,6 @@ dependencies:
   - tqdm
   - ipykernel
   - jupyter
+  - pip:
+      - torch
+      - torchvision
