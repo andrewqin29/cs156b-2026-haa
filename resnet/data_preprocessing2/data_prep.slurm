@@ -33,7 +33,7 @@ cd "${SCRIPT_DIR}"
 
 # ---- Python executable (batch nodes often lack conda on PATH) ----
 # Prefer explicit env interpreter so we never fall back to system python without pandas.
-CONDA_ENV_NAME="${CONDA_ENV:cs156b}"
+CONDA_ENV_NAME="${CONDA_ENV:-cs156b}"
 
 if [[ -n "${PYTHON_EXE:-}" && -x "${PYTHON_EXE}" ]]; then
   PYTHON_BIN=("${PYTHON_EXE}")
