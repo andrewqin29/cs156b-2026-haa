@@ -23,7 +23,7 @@ set -euo pipefail
 # so do NOT derive paths from BASH_SOURCE. Use the submission directory.
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SCRIPT_DIR="${REPO_ROOT}/efficient_net/data_preprocessing"
-OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data}"
+OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data}"
 LOG_DIR="${REPO_ROOT}/efficient_net/logs"
 
 mkdir -p "${LOG_DIR}"

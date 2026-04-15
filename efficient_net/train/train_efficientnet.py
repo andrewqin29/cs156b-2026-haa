@@ -238,12 +238,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--train_csv",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data/manifests_preprocessed/train_manifest_preprocessed.csv"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/train_manifest_preprocessed.csv"),
     )
     p.add_argument(
         "--val_csv",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data/manifests_preprocessed/val_manifest_preprocessed.csv"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/val_manifest_preprocessed.csv"),
     )
     p.add_argument("--model_name", default="efficientnet_b0", choices=["efficientnet_b0", "efficientnet_b3"])
     p.add_argument("--image_size", type=int, default=224)
@@ -259,7 +259,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--output_dir",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data/checkpoints"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/checkpoints"),
     )
     return p.parse_args()
 

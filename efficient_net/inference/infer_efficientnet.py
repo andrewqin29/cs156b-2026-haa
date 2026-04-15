@@ -81,7 +81,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--csv",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_data/manifests_preprocessed/test_manifest_preprocessed.csv"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/test_manifest_preprocessed.csv"),
     )
     p.add_argument(
         "--output",
