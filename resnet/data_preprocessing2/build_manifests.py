@@ -1,5 +1,5 @@
 """
-Build EfficientNet-ready manifests for training/inference.
+Build manifests for training/inference.
 
 Design goals:
 - Keep raw course data read-only (do not copy train/test image trees)

@@ -5,7 +5,7 @@ Expects CSVs under efficient_net_data/manifests_preprocessed/ with
 `preprocessed_path` (or `abs_path`) pointing at RGB 224×224 cached images.
 Train/val splits match the shared team manifests for comparable baselines.
 
-Run: see finetune_resnet50_alex_preprocessed.sh
+finetune_resnet50_alex_preprocessed.sh
 """
 
 from __future__ import annotations
