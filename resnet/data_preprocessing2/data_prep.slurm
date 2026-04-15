@@ -22,7 +22,7 @@ set -euo pipefail
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SCRIPT_DIR="${REPO_ROOT}"
 OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/front_512_data}"
-LOG_DIR="${REPO_ROOT}/efficient_net/logs"
+LOG_DIR="${REPO_ROOT}/data_prepocessing/logs"
 
 mkdir -p "${LOG_DIR}"
 mkdir -p "${OUT_ROOT}"
