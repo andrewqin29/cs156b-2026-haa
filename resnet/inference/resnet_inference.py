@@ -79,6 +79,10 @@ def main():
     print(f"Device: {device}")
     pin = device == "cuda"
 
+    out_path = Path(args.output)
+    if out_path.parent and not out_path.parent.exists():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
     try:
         checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
     except TypeError:
@@ -121,8 +125,8 @@ def main():
 
     submission = pd.DataFrame(all_preds, columns=LABEL_COLS)
     submission.insert(0, "Id", all_ids)
-    submission.to_csv(args.output, index=False)
-    print(f"Saved {len(submission)} predictions to {args.output}")
+    submission.to_csv(out_path, index=False)
+    print(f"Saved {len(submission)} predictions to {out_path}")
 
 
 if __name__ == "__main__":
