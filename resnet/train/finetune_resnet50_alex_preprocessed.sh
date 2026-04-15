@@ -19,12 +19,12 @@
 
 mkdir -p /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/logs
 
-cd /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/train
+cd /resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/train
 
 /resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python finetune_resnet50_alex_preprocessed.py \
     --epochs 20 \
     --batch_size 32 \
     --lr 5e-5 \
-    --output_dir /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/checkpoints_resnet_alex_manifests \
-    --train_csv /resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/train_manifest_preprocessed.csv \
-    --val_csv /resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/val_manifest_preprocessed.csv
+    --output_dir /resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/checkpoints_512 \
+    --train_csv /resnick/groups/CS156b/from_central/2026/haa/front_512_data/manifests_preprocessed/train_manifest_preprocessed.csv \
+    --val_csv /resnick/groups/CS156b/from_central/2026/haa/front_512_data/manifests_preprocessed/val_manifest_preprocessed.csv

@@ -121,7 +121,7 @@ def get_transforms(image_size: int, augment: bool):
 
 
 def parse_args() -> argparse.Namespace:
-    root = Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed")
+    root = Path("/resnick/groups/CS156b/from_central/2026/haa/front_512_data/manifests_preprocessed")
     p = argparse.ArgumentParser()
     p.add_argument("--train_csv", type=Path, default=root / "train_manifest_preprocessed.csv")
     p.add_argument("--val_csv", type=Path, default=root / "val_manifest_preprocessed.csv")
@@ -137,7 +137,7 @@ def parse_args() -> argparse.Namespace:
         help="Epochs to train only the new head (backbone frozen)",
     )
     p.add_argument("--num_workers", type=int, default=4)
-    p.add_argument("--output_dir", type=Path, default=Path("checkpoints_alex_manifests"))
+    p.add_argument("--output_dir", type=Path, default=Path("checkpoints_512"))
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--patience", type=int, default=3)
     p.add_argument("--missing_value", type=float, default=float(MISSING))
