@@ -2,12 +2,12 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
+#SBATCH --gres=gpu:nvidia_h200:1
+#SBATCH --mem=96G
 #SBATCH --partition=gpu
-# Full dataset + multiple epochs can exceed 24h on shared I/O; adjust if your partition allows.
-#SBATCH --time=48:00:00
+# Give plenty of headroom.
+#SBATCH --time=2-00:00:00
 
 #SBATCH -J "effnet_train"
 #SBATCH --mail-type=BEGIN
@@ -72,4 +72,4 @@ echo "Using Python: ${PYTHON_BIN[*]}"
   --epochs 15 \
   --batch_size 32 \
   --lr 1e-4 \
-  --num_workers 8
+  --num_workers 16
