@@ -116,6 +116,7 @@ def _patient_split(df: pd.DataFrame, val_split: float, seed: int) -> tuple[pd.Da
 
     unique_patients = df["patient_id"].dropna().astype(str).unique()
     rng = np.random.default_rng(seed)
+    unique_patients - np.array(unique_patients)
     rng.shuffle(unique_patients)
 
     n_val_patients = max(1, int(round(len(unique_patients) * val_split)))
