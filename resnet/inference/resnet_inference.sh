@@ -19,9 +19,8 @@
 
 mkdir -p logs
 
-cd /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/inference
-
-cd /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/inference
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
 /resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python resnet_inference.py \
   --checkpoint /resnick/groups/CS156b/from_central/2026/haa/cs156b-2026-haa/resnet/checkpoints_resnet_alex_manifests/best_model.pt \

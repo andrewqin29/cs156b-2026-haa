@@ -10,7 +10,8 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from tqdm import tqdm
 
-sys.path.append("/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/train")
+_TRAIN_DIR = Path(__file__).resolve().parents[1] / "train"
+sys.path.append(str(_TRAIN_DIR))
 from finetune_resnet50 import build_model, LABEL_COLS
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
