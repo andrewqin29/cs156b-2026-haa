@@ -6,7 +6,7 @@ PYTHON_BIN=${PYTHON_BIN:-python}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"${PYTHON_BIN}" "${SCRIPT_DIR}/build_efficientnet_manifests.py" \
+"${PYTHON_BIN}" "${SCRIPT_DIR}/build_manifests.py" \
   --output_root /resnick/groups/CS156b/from_central/2026/haa/front_512_data \
   --val_split 0.15 \
   --seed 42

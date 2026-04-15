@@ -9,7 +9,7 @@
 # finish remaining test images (existing outputs are skipped, not duplicated).
 #SBATCH --time=24:00:00
 
-#SBATCH -J "effnet_data_prep"
+#SBATCH -J "data_prep"
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -22,7 +22,7 @@ set -euo pipefail
 # On some clusters, Slurm runs a spooled copy of this script from /var/spool,
 # so do NOT derive paths from BASH_SOURCE. Use the submission directory.
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
-SCRIPT_DIR="${REPO_ROOT}/efficient_net/data_preprocessing"
+SCRIPT_DIR="${REPO_ROOT}"
 OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/front_512_data}"
 LOG_DIR="${REPO_ROOT}/efficient_net/logs"
 
@@ -33,7 +33,7 @@ cd "${SCRIPT_DIR}"
 
 # ---- Python executable (batch nodes often lack conda on PATH) ----
 # Prefer explicit env interpreter so we never fall back to system python without pandas.
-CONDA_ENV_NAME="${CONDA_ENV:-cs156b-efficientnet}"
+CONDA_ENV_NAME="${CONDA_ENV:cs156b}"
 
 if [[ -n "${PYTHON_EXE:-}" && -x "${PYTHON_EXE}" ]]; then
   PYTHON_BIN=("${PYTHON_EXE}")
@@ -41,8 +41,8 @@ elif [[ -x "${HOME}/miniconda3/envs/${CONDA_ENV_NAME}/bin/python" ]]; then
   PYTHON_BIN=("${HOME}/miniconda3/envs/${CONDA_ENV_NAME}/bin/python")
 elif [[ -x "${HOME}/.conda/envs/${CONDA_ENV_NAME}/bin/python" ]]; then
   PYTHON_BIN=("${HOME}/.conda/envs/${CONDA_ENV_NAME}/bin/python")
-elif [[ -x "/resnick/groups/CS156b/from_central/2026/haa/askumar/miniconda3/envs/${CONDA_ENV_NAME}/bin/python" ]]; then
-  PYTHON_BIN=("/resnick/groups/CS156b/from_central/2026/haa/askumar/miniconda3/envs/${CONDA_ENV_NAME}/bin/python")
+elif [[ -x "/resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/${CONDA_ENV_NAME}/bin/python" ]]; then
+  PYTHON_BIN=("/resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/${CONDA_ENV_NAME}/bin/python")
 else
   # Last resort: conda on PATH or after sourcing conda.sh
   if [[ -n "${CONDA_SH:-}" && -f "${CONDA_SH}" ]]; then

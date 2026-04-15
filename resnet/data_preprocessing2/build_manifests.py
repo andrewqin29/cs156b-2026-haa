@@ -7,9 +7,6 @@ Design goals:
 - Produce train/val split with patient-level grouping to reduce leakage
 - Normalize labels into a training-friendly format with missing sentinel
 
-Example:
-    python build_efficientnet_manifests.py \
-      --output_root /resnick/groups/CS156b/from_central/2026/haa/efficient_net_data
 """
 
 from __future__ import annotations
@@ -59,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--output_root",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/preprocessed"),
     )
     p.add_argument("--val_split", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=42)

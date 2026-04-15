@@ -2,7 +2,7 @@
 Create a lightweight preprocessed image cache.
 
 What this script does:
-- Reads manifests produced by build_efficientnet_manifests.py
+- Reads manifests produced by build_manifests.py
 - Loads images from abs_path
 - Converts to RGB (3 channels)
 - Resizes to square input size (SWITCHED TO 512, default still 224)
@@ -30,16 +30,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--manifest_root",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/preprocessed/manifests"),
         help="Directory containing train/val/test manifests",
     )
     p.add_argument(
         "--output_root",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data"),
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/preprocessed"),
         help="Team-writable root for cached images and updated manifests",
     )
-    p.add_argument("--image_size", type=int, default=224)
+    p.add_argument("--image_size", type=int, default=512)
     p.add_argument("--image_format", choices=["jpg", "png"], default="jpg")
     p.add_argument("--jpg_quality", type=int, default=95)
     return p.parse_args()
