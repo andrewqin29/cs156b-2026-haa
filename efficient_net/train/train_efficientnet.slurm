@@ -24,7 +24,7 @@ SCRIPT_DIR="${REPO_ROOT}/efficient_net/train"
 OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data}"
 
 mkdir -p "${REPO_ROOT}/efficient_net/logs"
-mkdir -p "${OUT_ROOT}/checkpoints"
+mkdir -p "${OUT_ROOT}/checkpoints/runs"
 
 cd "${SCRIPT_DIR}"
 
@@ -66,10 +66,12 @@ echo "Using Python: ${PYTHON_BIN[*]}"
 "${PYTHON_BIN[@]}" train_efficientnet.py \
   --train_csv "${OUT_ROOT}/manifests_preprocessed/train_manifest_preprocessed.csv" \
   --val_csv "${OUT_ROOT}/manifests_preprocessed/val_manifest_preprocessed.csv" \
-  --output_dir "${OUT_ROOT}/checkpoints" \
-  --model_name efficientnet_b0 \
+  --runs_base "${OUT_ROOT}/checkpoints/runs" \
+  --model_name efficientnet_b3 \
+  --uncertain_policy uzeros \
+  --use_pos_weight \
   --image_size 224 \
   --epochs 15 \
-  --batch_size 32 \
+  --batch_size 24 \
   --lr 1e-4 \
   --num_workers 16

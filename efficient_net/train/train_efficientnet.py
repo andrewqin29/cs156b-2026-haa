@@ -10,9 +10,9 @@ Uses `preprocessed_path` if present, otherwise falls back to `abs_path`.
 from __future__ import annotations
 
 import argparse
-import os
 import time
 import warnings
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -76,6 +76,36 @@ def _validate_manifest(df: pd.DataFrame, missing_value: float, name: str) -> pd.
     return df
 
 
+def compute_pos_weight_tensor(
+    train_df: pd.DataFrame, uncertain_policy: str, missing_value: float
+) -> torch.Tensor:
+    """Per-class neg/pos ratio for BCEWithLogitsLoss(pos_weight=...)."""
+    arr = train_df[LABEL_COLS].values.astype(np.float64)
+    mv = missing_value
+    if uncertain_policy == "mask":
+        labels = np.where(arr == mv, 0.0, arr)
+        m = arr != mv
+    elif uncertain_policy == "uzeros":
+        labels = np.where(arr == mv, 0.0, arr)
+        m = np.ones_like(arr, dtype=bool)
+    elif uncertain_policy == "uones":
+        labels = np.where(arr == mv, 1.0, arr)
+        m = np.ones_like(arr, dtype=bool)
+    else:
+        raise ValueError(f"Unknown uncertain_policy: {uncertain_policy}")
+
+    weights: list[float] = []
+    for c in range(NUM_CLASSES):
+        mc = m[:, c]
+        if mc.sum() < 1:
+            weights.append(1.0)
+            continue
+        pos = float(((labels[:, c] == 1.0) & mc).sum())
+        neg = float(((labels[:, c] == 0.0) & mc).sum())
+        weights.append(neg / max(pos, 1.0))
+    return torch.tensor(weights, dtype=torch.float32)
+
+
 def _binary_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """Compute ROC-AUC without sklearn using rank statistic."""
     y_true = y_true.astype(np.int64)
@@ -95,10 +125,17 @@ def _binary_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
 
 
 class XrayDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, transform=None, missing_value: float = -999.0):
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        transform=None,
+        missing_value: float = -999.0,
+        uncertain_policy: str = "mask",
+    ):
         self.df = df.reset_index(drop=True)
         self.transform = transform
         self.missing_value = missing_value
+        self.uncertain_policy = uncertain_policy
 
     def __len__(self):
         return len(self.df)
@@ -115,11 +152,23 @@ class XrayDataset(Dataset):
             img = self.transform(img)
 
         raw_labels = row[LABEL_COLS].values.astype(np.float32)
-        mask = torch.tensor((raw_labels != self.missing_value).astype(np.float32))
-        labels = torch.tensor(
-            np.where(raw_labels == self.missing_value, 0.0, raw_labels).astype(np.float32)
-        )
-        return img, labels, mask
+        mv = self.missing_value
+
+        if self.uncertain_policy == "mask":
+            mask = (raw_labels != mv).astype(np.float32)
+            labels = np.where(raw_labels == mv, 0.0, raw_labels).astype(np.float32)
+        elif self.uncertain_policy == "uzeros":
+            # U-zeros: treat uncertain/missing sentinel as negative (0), supervise all classes.
+            # Note: manifests store both original NaN and -1 as the same sentinel.
+            labels = np.where(raw_labels == mv, 0.0, raw_labels).astype(np.float32)
+            mask = np.ones_like(raw_labels, dtype=np.float32)
+        elif self.uncertain_policy == "uones":
+            labels = np.where(raw_labels == mv, 1.0, raw_labels).astype(np.float32)
+            mask = np.ones_like(raw_labels, dtype=np.float32)
+        else:
+            raise ValueError(f"Unknown uncertain_policy: {self.uncertain_policy}")
+
+        return img, torch.tensor(labels), torch.tensor(mask)
 
 
 def get_transforms(image_size: int, train: bool):
@@ -195,7 +244,12 @@ def run_epoch(model, loader, optimizer, device, training: bool, pos_weight=None)
             masks = masks.to(device, non_blocking=True)
 
             logits = model(imgs)
-            loss = masked_bce_loss(logits, labels, masks, pos_weight=pos_weight)
+            pw = pos_weight
+            if pw is not None and training:
+                pw = pw.to(device)
+            elif not training:
+                pw = None
+            loss = masked_bce_loss(logits, labels, masks, pos_weight=pw)
 
             if training:
                 optimizer.zero_grad()
@@ -245,23 +299,59 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/val_manifest_preprocessed.csv"),
     )
-    p.add_argument("--model_name", default="efficientnet_b0", choices=["efficientnet_b0", "efficientnet_b3"])
+    p.add_argument("--model_name", default="efficientnet_b3", choices=["efficientnet_b0", "efficientnet_b3"])
     p.add_argument("--image_size", type=int, default=224)
     p.add_argument("--epochs", type=int, default=15)
-    p.add_argument("--batch_size", type=int, default=32)
+    p.add_argument("--batch_size", type=int, default=24)
     p.add_argument("--lr", type=float, default=1e-4)
-    p.add_argument("--weight_decay", type=float, default=1e-5)
+    p.add_argument("--weight_decay", type=float, default=1e-4)
     p.add_argument("--num_workers", type=int, default=4)
     p.add_argument("--dropout", type=float, default=0.3)
     p.add_argument("--missing_value", type=float, default=-999.0)
+    p.add_argument(
+        "--uncertain_policy",
+        default="uzeros",
+        choices=["mask", "uzeros", "uones"],
+        help="mask: ignore sentinel labels. uzeros/uones: map sentinel to 0/1 and supervise all classes.",
+    )
+    p.add_argument(
+        "--use_pos_weight",
+        action="store_true",
+        help="Per-class pos_weight=neg/pos on train (helps rare labels).",
+    )
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--patience", type=int, default=3)
+    p.add_argument("--patience", type=int, default=5)
+    p.add_argument(
+        "--runs_base",
+        type=Path,
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/checkpoints/runs"),
+    )
+    p.add_argument(
+        "--run_name",
+        type=str,
+        default="",
+        help="Subfolder under runs_base. Empty -> auto from model + policy + timestamp.",
+    )
     p.add_argument(
         "--output_dir",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/checkpoints"),
+        default=None,
+        help="If set, write checkpoints here (overrides runs_base/run_name).",
     )
     return p.parse_args()
+
+
+def _resolve_output_dir(args: argparse.Namespace) -> Path:
+    if args.output_dir is not None:
+        return args.output_dir
+    args.runs_base.mkdir(parents=True, exist_ok=True)
+    if args.run_name:
+        name = args.run_name
+    else:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"{args.model_name}_{args.uncertain_policy}_{ts}"
+    out = args.runs_base / name
+    return out
 
 
 def main() -> None:
@@ -269,8 +359,14 @@ def main() -> None:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    metrics_path = args.output_dir / "metrics.csv"
+    out_dir = _resolve_output_dir(args)
+    args.output_dir = out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / "run_config.txt", "w", encoding="utf-8") as f:
+        for k, v in sorted(vars(args).items()):
+            f.write(f"{k}={v!r}\n")
+    print(f"Output directory: {out_dir}")
+    metrics_path = out_dir / "metrics.csv"
     with open(metrics_path, "w", encoding="utf-8") as f:
         f.write("epoch,train_loss,train_auc,val_loss,val_auc\n")
 
@@ -295,12 +391,21 @@ def main() -> None:
         train_df,
         transform=get_transforms(args.image_size, train=True),
         missing_value=args.missing_value,
+        uncertain_policy=args.uncertain_policy,
     )
     val_ds = XrayDataset(
         val_df,
         transform=get_transforms(args.image_size, train=False),
         missing_value=args.missing_value,
+        uncertain_policy=args.uncertain_policy,
     )
+
+    train_pos_weight: torch.Tensor | None = None
+    if args.use_pos_weight:
+        train_pos_weight = compute_pos_weight_tensor(
+            train_df, args.uncertain_policy, args.missing_value
+        )
+        print(f"pos_weight (neg/pos): {train_pos_weight.numpy().round(3)}")
 
     pin = device == "cuda"
     train_loader = DataLoader(
@@ -326,16 +431,21 @@ def main() -> None:
 
     best_auc = -1.0
     epochs_no_improve = 0
-    best_path = args.output_dir / "best_model.pt"
-    final_path = args.output_dir / "final_model.pt"
+    best_path = out_dir / "best_model.pt"
+    final_path = out_dir / "final_model.pt"
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
         train_loss, train_auc = run_epoch(
-            model, train_loader, optimizer, device, training=True
+            model,
+            train_loader,
+            optimizer,
+            device,
+            training=True,
+            pos_weight=train_pos_weight,
         )
         val_loss, val_auc = run_epoch(
-            model, val_loader, optimizer, device, training=False
+            model, val_loader, optimizer, device, training=False, pos_weight=None
         )
         scheduler.step()
 
