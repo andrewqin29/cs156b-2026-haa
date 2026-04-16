@@ -1,29 +1,57 @@
-"""
-Run DenseNet multilabel inference from a manifest CSV and a saved checkpoint.
-"""
+"""Inference for DenseNet multi-label chest X-ray model on standardized front_512 data."""
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
 
-if __package__ is None or __package__ == "":
-    import sys
+_TRAIN_DIR = Path(__file__).resolve().parents[1] / "train"
+sys.path.append(str(_TRAIN_DIR))
 
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
-
-from dense_net.common import LABEL_COLS, get_device  # noqa: E402
-from dense_net.data import XrayManifestDataset, get_image_transforms, load_manifest  # noqa: E402
-from dense_net.model import build_densenet_model  # noqa: E402
-
-DEFAULT_PREPROCESSED_MANIFEST_ROOT = Path(
-    "/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed"
+from train_densenet import (  # noqa: E402
+    FRONT_512_ROOT,
+    LABEL_COLS,
+    build_model,
+    get_transforms,
 )
+
+
+def _resolve_image_path(row: pd.Series) -> str | None:
+    for column in ("preprocessed_path", "abs_path"):
+        if column in row.index:
+            candidate = row[column]
+            if pd.isna(candidate):
+                continue
+            candidate = str(candidate)
+            if Path(candidate).exists():
+                return candidate
+    return None
+
+
+class TestDataset(Dataset):
+    def __init__(self, df: pd.DataFrame, transform=None):
+        self.df = df.reset_index(drop=True)
+        self.transform = transform
+
+    def __len__(self) -> int:
+        return len(self.df)
+
+    def __getitem__(self, idx: int):
+        row = self.df.iloc[idx]
+        path = row["_image_path"]
+        if pd.isna(path):
+            raise FileNotFoundError(f"Row {idx} has no usable image path.")
+        img = Image.open(str(path)).convert("RGB")
+        if self.transform:
+            img = self.transform(img)
+        return img, row["Id"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,72 +60,88 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--csv",
         type=Path,
-        default=DEFAULT_PREPROCESSED_MANIFEST_ROOT / "test_manifest_preprocessed.csv",
+        default=FRONT_512_ROOT / "manifests_preprocessed" / "test_manifest_preprocessed.csv",
     )
-    parser.add_argument("--output", type=Path, default=Path("densenet_submission.csv"))
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--model_name", choices=["densenet121", "densenet169"], default=None)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("/resnick/groups/CS156b/from_central/2026/haa/results/dense_net/inference/submission.csv"),
+    )
+    parser.add_argument("--batch_size", type=int, default=12)
+    parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--image_size", type=int, default=None)
+    parser.add_argument("--model_name", choices=["densenet121", "densenet169"], default=None)
     parser.add_argument("--dropout", type=float, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    device = get_device()
+    device = (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
 
     if not args.checkpoint.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
+        raise FileNotFoundError(f"Missing checkpoint: {args.checkpoint}")
     if not args.csv.exists():
-        raise FileNotFoundError(f"Input CSV not found: {args.csv}")
+        raise FileNotFoundError(f"Missing input CSV: {args.csv}")
 
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    except TypeError:
+        checkpoint = torch.load(args.checkpoint, map_location=device)
+
     model_name = args.model_name or checkpoint.get("model_name", "densenet121")
-    image_size = args.image_size or checkpoint.get("image_size", 224)
-    dropout = args.dropout
-    if dropout is None:
-        dropout = checkpoint.get("dropout", 0.3)
+    image_size = args.image_size or checkpoint.get("image_size", 512)
+    dropout = args.dropout if args.dropout is not None else checkpoint.get("dropout", 0.3)
 
-    model = build_densenet_model(
+    model = build_model(
         model_name=model_name,
         dropout=dropout,
-        freeze_backbone=False,
         pretrained=False,
+        freeze_backbone=False,
     ).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()
 
-    df = load_manifest(args.csv)
-    dataset = XrayManifestDataset(
-        df,
-        transform=get_image_transforms(image_size=image_size, train=False),
-        require_labels=False,
-    )
+    df = pd.read_csv(args.csv).copy()
+    if "Id" not in df.columns:
+        df["Id"] = np.arange(len(df))
+    df["_image_path"] = df.apply(_resolve_image_path, axis=1)
+    before = len(df)
+    df = df[df["_image_path"].notna()].reset_index(drop=True)
+    dropped = before - len(df)
+    if dropped > 0:
+        print(f"[WARN] Dropped {dropped} rows with missing/nonexistent image files")
+
     loader = DataLoader(
-        dataset,
+        TestDataset(df, transform=get_transforms(image_size, train=False)),
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=(device == "cuda"),
     )
 
-    all_ids = []
-    all_probs = []
+    all_ids: list[object] = []
+    all_preds: list[np.ndarray] = []
     with torch.no_grad():
-        for images, image_ids in loader:
-            images = images.to(device, non_blocking=True)
-            logits = model(images)
-            probs = torch.sigmoid(logits).cpu().numpy()
-            all_probs.append(probs)
-
-            if isinstance(image_ids, torch.Tensor):
-                all_ids.extend(image_ids.cpu().numpy().tolist())
+        for imgs, ids in loader:
+            imgs = imgs.to(device, non_blocking=True)
+            probs = torch.sigmoid(model(imgs)).cpu().numpy()
+            all_preds.append(probs)
+            if isinstance(ids, torch.Tensor):
+                all_ids.extend(ids.cpu().numpy().tolist())
             else:
-                all_ids.extend(list(image_ids))
+                all_ids.extend(list(ids))
 
-    probabilities = np.concatenate(all_probs, axis=0)
-    submission = pd.DataFrame(probabilities, columns=LABEL_COLS)
+    preds = np.concatenate(all_preds, axis=0)
+    submission = pd.DataFrame(preds, columns=LABEL_COLS)
     submission.insert(0, "Id", all_ids)
     submission.to_csv(args.output, index=False)
 

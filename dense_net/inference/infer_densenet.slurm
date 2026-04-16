@@ -2,31 +2,40 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=16
+#SBATCH --gres=gpu:nvidia_h200:1
+#SBATCH --mem=96G
 #SBATCH --partition=gpu
-# Full test set can be slow on shared filesystem; allow headroom.
 #SBATCH --time=12:00:00
 
-#SBATCH -J "densenet_infer"
+#SBATCH -J "densenet_infer_front512"
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --output=densenet-infer-%j.out
-#SBATCH --error=densenet-infer-%j.err
+#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/results/dense_net/slurm_logs/densenet-infer-front512-%j.out
+#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/results/dense_net/slurm_logs/densenet-infer-front512-%j.err
 
 set -euo pipefail
 
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SCRIPT_DIR="${REPO_ROOT}/dense_net/inference"
+DATA_ROOT="${DATA_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/front_512_data}"
+RESULTS_ROOT="${RESULTS_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/results/dense_net}"
+CHECKPOINT_PATH="${CHECKPOINT_PATH:-}"
+TEST_CSV="${TEST_CSV:-${DATA_ROOT}/manifests_preprocessed/test_manifest_preprocessed.csv}"
+OUTPUT_PATH="${OUTPUT_PATH:-${RESULTS_ROOT}/inference/submission.csv}"
+MODEL_NAME="${MODEL_NAME:-}"
+IMAGE_SIZE="${IMAGE_SIZE:-}"
+MPLCONFIGDIR="${MPLCONFIGDIR:-/resnick/groups/CS156b/from_central/2026/haa/asqin/.config/matplotlib}"
 
-DEFAULT_CHECKPOINT="/resnick/groups/CS156b/from_central/2026/haa/dense_net_runs/densenet121_run1/best_model.pt"
-CHECKPOINT_PATH="${CHECKPOINT_PATH:-${DEFAULT_CHECKPOINT}}"
-TEST_CSV="${TEST_CSV:-/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed/test_manifest_preprocessed.csv}"
-OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/dense_net/inference/submission.csv}"
+if [[ -z "${CHECKPOINT_PATH}" ]]; then
+  echo "ERROR: Set CHECKPOINT_PATH to a trained DenseNet checkpoint."
+  exit 1
+fi
 
-mkdir -p "${REPO_ROOT}/dense_net/logs"
+mkdir -p "${RESULTS_ROOT}/inference" "${RESULTS_ROOT}/slurm_logs"
+mkdir -p "${MPLCONFIGDIR}"
+export MPLCONFIGDIR
 
 cd "${SCRIPT_DIR}"
 
@@ -66,9 +75,24 @@ fi
 echo "Using Python: ${PYTHON_BIN[*]}"
 "${PYTHON_BIN[@]}" -c "import sys; import torch; print('Python:', sys.version); print('torch:', torch.__version__)"
 
-"${PYTHON_BIN[@]}" densenet_inference.py \
-  --checkpoint "${CHECKPOINT_PATH}" \
-  --csv "${TEST_CSV}" \
-  --output "${OUTPUT_PATH}" \
-  --batch_size 32 \
-  --num_workers 8
+CMD=(
+  "${PYTHON_BIN[@]}" densenet_inference.py
+  --checkpoint "${CHECKPOINT_PATH}"
+  --csv "${TEST_CSV}"
+  --output "${OUTPUT_PATH}"
+  --batch_size 12
+  --num_workers 16
+)
+
+if [[ -n "${MODEL_NAME}" ]]; then
+  CMD+=(--model_name "${MODEL_NAME}")
+fi
+
+if [[ -n "${IMAGE_SIZE}" ]]; then
+  CMD+=(--image_size "${IMAGE_SIZE}")
+fi
+
+printf 'Running:'
+printf ' %q' "${CMD[@]}"
+printf '\n'
+"${CMD[@]}"
