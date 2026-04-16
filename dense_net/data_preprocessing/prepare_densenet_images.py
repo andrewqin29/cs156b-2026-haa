@@ -16,10 +16,18 @@ if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 
+DEFAULT_MANIFEST_ROOT = Path(
+    "/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests"
+)
+DEFAULT_OUTPUT_ROOT = Path(
+    "/resnick/groups/CS156b/from_central/2026/haa/dense_net_data"
+)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--manifest_root", type=Path, required=True)
-    parser.add_argument("--output_root", type=Path, required=True)
+    parser.add_argument("--manifest_root", type=Path, default=DEFAULT_MANIFEST_ROOT)
+    parser.add_argument("--output_root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--image_format", choices=["jpg", "png"], default="jpg")
     parser.add_argument("--jpg_quality", type=int, default=95)
@@ -85,8 +93,8 @@ def main() -> None:
     val_df = pd.read_csv(val_manifest)
     test_df = pd.read_csv(test_manifest)
 
-    image_dir = args.output_root / "preprocessed_images"
-    manifest_dir = args.output_root / "manifests_preprocessed"
+    image_dir = args.output_root / f"preprocessed_images_{args.image_size}"
+    manifest_dir = args.output_root / f"manifests_preprocessed_{args.image_size}"
     manifest_dir.mkdir(parents=True, exist_ok=True)
 
     train_out = _cache_one_split(

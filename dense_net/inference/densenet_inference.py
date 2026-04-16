@@ -21,11 +21,19 @@ from dense_net.common import LABEL_COLS, get_device  # noqa: E402
 from dense_net.data import XrayManifestDataset, get_image_transforms, load_manifest  # noqa: E402
 from dense_net.model import build_densenet_model  # noqa: E402
 
+DEFAULT_PREPROCESSED_MANIFEST_ROOT = Path(
+    "/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed"
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--csv", type=Path, required=True)
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        default=DEFAULT_PREPROCESSED_MANIFEST_ROOT / "test_manifest_preprocessed.csv",
+    )
     parser.add_argument("--output", type=Path, default=Path("densenet_submission.csv"))
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_workers", type=int, default=4)
@@ -55,6 +63,7 @@ def main() -> None:
         model_name=model_name,
         dropout=dropout,
         freeze_backbone=False,
+        pretrained=False,
     ).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()

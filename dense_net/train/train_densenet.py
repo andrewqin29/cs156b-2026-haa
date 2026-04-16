@@ -36,11 +36,23 @@ from dense_net.model import (  # noqa: E402
     set_feature_extractor_trainable,
 )
 
+DEFAULT_PREPROCESSED_MANIFEST_ROOT = Path(
+    "/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/manifests_preprocessed"
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train_csv", type=Path, required=True)
-    parser.add_argument("--val_csv", type=Path, required=True)
+    parser.add_argument(
+        "--train_csv",
+        type=Path,
+        default=DEFAULT_PREPROCESSED_MANIFEST_ROOT / "train_manifest_preprocessed.csv",
+    )
+    parser.add_argument(
+        "--val_csv",
+        type=Path,
+        default=DEFAULT_PREPROCESSED_MANIFEST_ROOT / "val_manifest_preprocessed.csv",
+    )
     parser.add_argument("--model_name", choices=["densenet121", "densenet169"], default="densenet121")
     parser.add_argument("--image_size", type=int, default=224)
     parser.add_argument("--epochs", type=int, default=15)
@@ -57,6 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max_pos_weight", type=float, default=20.0)
     parser.add_argument("--disable_pos_weight", action="store_true")
     parser.add_argument("--output_dir", type=Path, default=Path("dense_net/artifacts/checkpoints"))
+    parser.add_argument("--torch_home", type=Path, default=None)
     return parser.parse_args()
 
 
@@ -188,6 +201,8 @@ def main() -> None:
         model_name=args.model_name,
         dropout=args.dropout,
         freeze_backbone=True,
+        pretrained=True,
+        torch_home=args.torch_home or (args.output_dir / ".torch"),
     ).to(args.device)
 
     optimizer = torch.optim.AdamW(

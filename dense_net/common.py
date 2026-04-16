@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.metrics import roc_auc_score
 
 LABEL_COLS = [
     "No Finding",
@@ -57,23 +58,6 @@ def masked_bce_loss(
     return masked_loss.sum() / denom
 
 
-def _binary_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
-    y_true = y_true.astype(np.int64)
-    y_score = y_score.astype(np.float64)
-
-    n_pos = int((y_true == 1).sum())
-    n_neg = int((y_true == 0).sum())
-    if n_pos == 0 or n_neg == 0:
-        return float("nan")
-
-    order = np.argsort(y_score)
-    ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, len(y_score) + 1, dtype=np.float64)
-    sum_ranks_pos = ranks[y_true == 1].sum()
-    auc = (sum_ranks_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
-    return float(auc)
-
-
 def compute_multilabel_auc(
     probabilities: np.ndarray,
     labels: np.ndarray,
@@ -90,9 +74,9 @@ def compute_multilabel_auc(
         if len(np.unique(y_true)) < 2:
             continue
 
-        auc = _binary_auc(y_true, probabilities[valid_mask, index])
+        auc = roc_auc_score(y_true, probabilities[valid_mask, index])
         if not np.isnan(auc):
-            per_label_auc[label_name] = auc
+            per_label_auc[label_name] = float(auc)
 
     mean_auc = float(np.mean(list(per_label_auc.values()))) if per_label_auc else float("nan")
     return mean_auc, per_label_auc

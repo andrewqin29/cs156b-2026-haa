@@ -87,4 +87,9 @@ class XrayManifestDataset(Dataset):
 
 
 def load_manifest(csv_path: Path) -> pd.DataFrame:
-    return pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path)
+    present_label_cols = [column for column in LABEL_COLS if column in df.columns]
+    if present_label_cols:
+        df[present_label_cols] = df[present_label_cols].replace(-1.0, MISSING_VALUE)
+        df[present_label_cols] = df[present_label_cols].fillna(MISSING_VALUE)
+    return df
