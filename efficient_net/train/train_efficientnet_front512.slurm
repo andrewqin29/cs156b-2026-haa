@@ -2,27 +2,29 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:nvidia_h200:1
-#SBATCH --mem=32G
+#SBATCH --mem=96G
 #SBATCH --partition=gpu
-# Full test set (~22k) can be slow on shared filesystem; allow headroom.
-#SBATCH --time=12:00:00
+#SBATCH --time=2-00:00:00
 
-#SBATCH -J "effnet_infer"
+#SBATCH -J "effnet_train_front512"
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --output=effnet-infer-%j.out
-#SBATCH --error=effnet-infer-%j.err
+# Run sbatch from repo root so paths resolve.
+#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/results/efficient_net/slurm_logs/effnet-train-front512-%j.out
+#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/results/efficient_net/slurm_logs/effnet-train-front512-%j.err
 
 set -euo pipefail
 
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
-SCRIPT_DIR="${REPO_ROOT}/efficient_net/inference"
-OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data}"
+SCRIPT_DIR="${REPO_ROOT}/efficient_net/train"
+OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/front_512_data}"
+RESULTS_ROOT="${RESULTS_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/results/efficient_net}"
 
 mkdir -p "${REPO_ROOT}/efficient_net/logs"
+mkdir -p "${RESULTS_ROOT}/runs" "${RESULTS_ROOT}/slurm_logs"
 
 cd "${SCRIPT_DIR}"
 
@@ -60,11 +62,14 @@ fi
 echo "Using Python: ${PYTHON_BIN[*]}"
 "${PYTHON_BIN[@]}" -c "import sys; import torch; print('Python:', sys.version); print('torch:', torch.__version__)"
 
-"${PYTHON_BIN[@]}" infer_efficientnet.py \
-  --checkpoint "${OUT_ROOT}/checkpoints/runs/efficientnet_b3_uzeros_20260414_224816/best_model.pt" \
-  --csv "${OUT_ROOT}/manifests_preprocessed/test_manifest_preprocessed.csv" \
-  --output "${REPO_ROOT}/efficient_net/inference/submission.csv" \
+# train_efficientnet_front512.py sets CSV paths, runs_base, and --image_size 512.
+# Smaller batch than 224 training — 512² activations; raise if you have headroom.
+"${PYTHON_BIN[@]}" train_efficientnet_front512.py \
+  --runs_base "${RESULTS_ROOT}/runs" \
   --model_name efficientnet_b3 \
-  --image_size 224 \
-  --batch_size 32 \
-  --num_workers 8
+  --uncertain_policy uzeros \
+  --use_pos_weight \
+  --epochs 15 \
+  --batch_size 12 \
+  --lr 1e-4 \
+  --num_workers 16

@@ -13,18 +13,19 @@
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-# Relative to directory where you run sbatch (use repo root); avoids broken ../logs paths.
-#SBATCH --output=effnet-train-%j.out
-#SBATCH --error=effnet-train-%j.err
+# Slurm stdout/stderr (job-level). Per-epoch metrics and full console copy: results/.../runs/<run>/train.log
+#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/results/efficient_net/slurm_logs/effnet-train-%j.out
+#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/results/efficient_net/slurm_logs/effnet-train-%j.err
 
 set -euo pipefail
 
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SCRIPT_DIR="${REPO_ROOT}/efficient_net/train"
 OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data}"
+RESULTS_ROOT="${RESULTS_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/results/efficient_net}"
 
 mkdir -p "${REPO_ROOT}/efficient_net/logs"
-mkdir -p "${OUT_ROOT}/checkpoints/runs"
+mkdir -p "${RESULTS_ROOT}/runs" "${RESULTS_ROOT}/slurm_logs"
 
 cd "${SCRIPT_DIR}"
 
@@ -66,7 +67,7 @@ echo "Using Python: ${PYTHON_BIN[*]}"
 "${PYTHON_BIN[@]}" train_efficientnet.py \
   --train_csv "${OUT_ROOT}/manifests_preprocessed/train_manifest_preprocessed.csv" \
   --val_csv "${OUT_ROOT}/manifests_preprocessed/val_manifest_preprocessed.csv" \
-  --runs_base "${OUT_ROOT}/checkpoints/runs" \
+  --runs_base "${RESULTS_ROOT}/runs" \
   --model_name efficientnet_b3 \
   --uncertain_policy uzeros \
   --use_pos_weight \

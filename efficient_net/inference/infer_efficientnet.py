@@ -114,7 +114,13 @@ def main() -> None:
     if not args.csv.exists():
         raise FileNotFoundError(f"Missing test CSV: {args.csv}")
 
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    # PyTorch 2.6+ defaults torch.load(weights_only=True). Our checkpoints are dicts
+    # containing metadata (e.g., args, label_cols) and can include pathlib objects.
+    # We trust locally-produced checkpoints, so load with weights_only=False.
+    try:
+        checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    except TypeError:
+        checkpoint = torch.load(args.checkpoint, map_location=device)
     model = build_model(model_name=args.model_name).to(device)
     model.load_state_dict(checkpoint["model_state"])
     model.eval()

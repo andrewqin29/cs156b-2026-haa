@@ -105,9 +105,15 @@ def _prepare_train_df(
         r"^train/", str(train_img_root) + "/", regex=True
     )
 
-    # Convert labels to float and replace uncertain/missing with sentinel.
-    df[LABEL_COLS] = df[LABEL_COLS].astype(float)
-    df[LABEL_COLS] = df[LABEL_COLS].replace(-1.0, missing_value).fillna(missing_value)
+    # Convert labels to numeric but DO NOT collapse uncertain (-1) into missing.
+    # Keep:
+    # - 1.0: positive
+    # - 0.0: negative
+    # - -1.0: uncertain
+    # - NaN: missing/unlabeled for that finding
+    # Training code can then choose how to treat -1 vs NaN.
+    for c in LABEL_COLS:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
 
     df["patient_id"] = _extract_patient_id(df["Path"])
     return df

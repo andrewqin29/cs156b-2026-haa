@@ -3,6 +3,9 @@ Train EfficientNet (multi-label) on CheXpert manifests.
 
 Expected input manifests are produced by efficient_net/data_preprocessing scripts.
 Uses `preprocessed_path` if present, otherwise falls back to `abs_path`.
+
+Each run writes to ``results/efficient_net/runs/<run_name>/``: ``best_model.pt``,
+``final_model.pt``, ``metrics.csv``, ``run_config.txt``, and ``train.log`` (full console).
 """
 
 # pyright: reportMissingImports=false
@@ -10,10 +13,12 @@ Uses `preprocessed_path` if present, otherwise falls back to `abs_path`.
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 import warnings
 from datetime import datetime
 from pathlib import Path
+from typing import IO, Any
 
 import numpy as np
 import pandas as pd
@@ -37,6 +42,40 @@ LABEL_COLS = [
 
 NUM_CLASSES = len(LABEL_COLS)
 
+# Checkpoints, metrics, run_config.txt, and train.log live under runs_base/<run_name>/.
+RESULTS_EFFICIENT_NET = Path(
+    "/resnick/groups/CS156b/from_central/2026/haa/results/efficient_net"
+)
+
+
+class _TeeTextIO:
+    """Duplicate writes to multiple text streams (e.g. console + train.log)."""
+
+    def __init__(self, *streams: IO[str]) -> None:
+        self._streams = streams
+
+    def write(self, data: str) -> int:
+        for s in self._streams:
+            s.write(data)
+            s.flush()
+        return len(data)
+
+    def flush(self) -> None:
+        for s in self._streams:
+            s.flush()
+
+    def isatty(self) -> bool:
+        return self._streams[0].isatty()
+
+    @property
+    def encoding(self) -> str:
+        enc = getattr(self._streams[0], "encoding", None)
+        return enc if isinstance(enc, str) else "utf-8"
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._streams[0], name)
+
+
 def _progress(iterable, leave=False):
     return iterable
 
@@ -58,7 +97,8 @@ def _validate_manifest(df: pd.DataFrame, missing_value: float, name: str) -> pd.
 
     for c in LABEL_COLS:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    df[LABEL_COLS] = df[LABEL_COLS].fillna(missing_value)
+    # Preserve -1 as "uncertain" and only convert true NaNs to missing sentinel.
+    df[LABEL_COLS] = df[LABEL_COLS].where(~df[LABEL_COLS].isna(), other=missing_value)
 
     before = len(df)
     df = df[df[path_col].notna()].copy()
@@ -83,14 +123,20 @@ def compute_pos_weight_tensor(
     arr = train_df[LABEL_COLS].values.astype(np.float64)
     mv = missing_value
     if uncertain_policy == "mask":
-        labels = np.where(arr == mv, 0.0, arr)
-        m = arr != mv
+        missing = arr == mv
+        uncertain = arr == -1.0
+        labels = np.where(missing | uncertain, 0.0, arr)
+        m = ~(missing | uncertain)
     elif uncertain_policy == "uzeros":
-        labels = np.where(arr == mv, 0.0, arr)
-        m = np.ones_like(arr, dtype=bool)
+        missing = arr == mv
+        labels = np.where(missing, 0.0, arr)
+        labels = np.where(labels == -1.0, 0.0, labels)
+        m = ~missing
     elif uncertain_policy == "uones":
-        labels = np.where(arr == mv, 1.0, arr)
-        m = np.ones_like(arr, dtype=bool)
+        missing = arr == mv
+        labels = np.where(missing, 0.0, arr)
+        labels = np.where(labels == -1.0, 1.0, labels)
+        m = ~missing
     else:
         raise ValueError(f"Unknown uncertain_policy: {uncertain_policy}")
 
@@ -153,18 +199,22 @@ class XrayDataset(Dataset):
 
         raw_labels = row[LABEL_COLS].values.astype(np.float32)
         mv = self.missing_value
+        missing = raw_labels == mv
+        uncertain = raw_labels == -1.0
 
         if self.uncertain_policy == "mask":
-            mask = (raw_labels != mv).astype(np.float32)
-            labels = np.where(raw_labels == mv, 0.0, raw_labels).astype(np.float32)
+            mask = (~(missing | uncertain)).astype(np.float32)
+            labels = np.where(missing | uncertain, 0.0, raw_labels).astype(np.float32)
         elif self.uncertain_policy == "uzeros":
-            # U-zeros: treat uncertain/missing sentinel as negative (0), supervise all classes.
-            # Note: manifests store both original NaN and -1 as the same sentinel.
-            labels = np.where(raw_labels == mv, 0.0, raw_labels).astype(np.float32)
-            mask = np.ones_like(raw_labels, dtype=np.float32)
+            # U-zeros: treat only uncertain (-1) as negative, still mask true missing.
+            labels = np.where(missing, 0.0, raw_labels).astype(np.float32)
+            labels = np.where(uncertain, 0.0, labels).astype(np.float32)
+            mask = (~missing).astype(np.float32)
         elif self.uncertain_policy == "uones":
-            labels = np.where(raw_labels == mv, 1.0, raw_labels).astype(np.float32)
-            mask = np.ones_like(raw_labels, dtype=np.float32)
+            # U-ones: treat only uncertain (-1) as positive, still mask true missing.
+            labels = np.where(missing, 0.0, raw_labels).astype(np.float32)
+            labels = np.where(uncertain, 1.0, labels).astype(np.float32)
+            mask = (~missing).astype(np.float32)
         else:
             raise ValueError(f"Unknown uncertain_policy: {self.uncertain_policy}")
 
@@ -183,7 +233,8 @@ def get_transforms(image_size: int, train: bool):
                 transforms.Resize((image_size, image_size)),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomRotation(7),
-                transforms.ColorJitter(brightness=0.15, contrast=0.15),
+                # Keep this mild for grayscale-ish radiographs.
+                transforms.ColorJitter(brightness=0.05, contrast=0.05),
                 transforms.ToTensor(),
                 normalize,
             ]
@@ -319,18 +370,25 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Per-class pos_weight=neg/pos on train (helps rare labels).",
     )
+    p.add_argument(
+        "--pos_weight_clip",
+        type=float,
+        default=20.0,
+        help="Clip per-class pos_weight to this max (stabilizes rare classes).",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--patience", type=int, default=5)
     p.add_argument(
         "--runs_base",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/efficient_net_data/checkpoints/runs"),
+        default=RESULTS_EFFICIENT_NET / "runs",
+        help="Each run is runs_base/<run_name>/ with checkpoints, metrics, run_config.txt, train.log.",
     )
     p.add_argument(
         "--run_name",
         type=str,
         default="",
-        help="Subfolder under runs_base. Empty -> auto from model + policy + timestamp.",
+        help="Subfolder under runs_base. Empty -> auto from model + policy + image_size + timestamp.",
     )
     p.add_argument(
         "--output_dir",
@@ -349,19 +407,14 @@ def _resolve_output_dir(args: argparse.Namespace) -> Path:
         name = args.run_name
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = f"{args.model_name}_{args.uncertain_policy}_{ts}"
+        name = (
+            f"{args.model_name}_{args.uncertain_policy}_{args.image_size}px_{ts}"
+        )
     out = args.runs_base / name
     return out
 
 
-def main() -> None:
-    args = parse_args()
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-
-    out_dir = _resolve_output_dir(args)
-    args.output_dir = out_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
+def _train_run(args: argparse.Namespace, out_dir: Path) -> None:
     with open(out_dir / "run_config.txt", "w", encoding="utf-8") as f:
         for k, v in sorted(vars(args).items()):
             f.write(f"{k}={v!r}\n")
@@ -405,6 +458,8 @@ def main() -> None:
         train_pos_weight = compute_pos_weight_tensor(
             train_df, args.uncertain_policy, args.missing_value
         )
+        if args.pos_weight_clip and args.pos_weight_clip > 0:
+            train_pos_weight = torch.clamp(train_pos_weight, max=float(args.pos_weight_clip))
         print(f"pos_weight (neg/pos): {train_pos_weight.numpy().round(3)}")
 
     pin = device == "cuda"
@@ -499,6 +554,28 @@ def main() -> None:
         print(f"[WARN] best_model.pt not selected by AUC; copied from final_model.pt")
 
     print(f"Done. Best val AUC: {best_auc:.4f}")
+
+
+def main() -> None:
+    args = parse_args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    out_dir = _resolve_output_dir(args)
+    args.output_dir = out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    RESULTS_EFFICIENT_NET.mkdir(parents=True, exist_ok=True)
+
+    log_path = out_dir / "train.log"
+    log_fp = open(log_path, "w", encoding="utf-8")
+    saved_out, saved_err = sys.stdout, sys.stderr
+    try:
+        sys.stdout = _TeeTextIO(saved_out, log_fp)
+        sys.stderr = _TeeTextIO(saved_err, log_fp)
+        _train_run(args, out_dir)
+    finally:
+        log_fp.close()
+        sys.stdout, sys.stderr = saved_out, saved_err
 
 
 if __name__ == "__main__":
