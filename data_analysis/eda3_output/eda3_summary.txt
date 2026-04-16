@@ -1,0 +1,35 @@
+EDA3 SUMMARY
+train_csv: /resnick/groups/CS156b/from_central/data/student_labels/train2023.csv
+frontal_only: True
+rows (images): 152,298
+unique patients: 51,628
+unique studies: 149,587
+images / patient: min 1 max 91 median 1
+view_tag counts (image rows):
+  frontal: 152,298
+
+LABEL RAW COUNTS (image rows):
+  No Finding: pos=28,502 neg=13,472 unc=262,604 nan=9
+  Enlarged Cardiomediastinum: pos=12,696 neg=21,874 unc=25,778 nan=122,124
+  Cardiomegaly: pos=34,888 neg=13,970 unc=17,446 nan=119,146
+  Lung Opacity: pos=150,618 neg=8,442 unc=7,718 nan=68,909
+  Pneumonia: pos=4,206 neg=28,930 unc=2,610 nan=134,425
+  Pleural Effusion: pos=122,422 neg=17,256 unc=39,276 nan=62,821
+  Pleural Other: pos=4,196 neg=3,214 unc=156 nan=148,515
+  Fracture: pos=11,382 neg=1,692 unc=4,132 nan=143,695
+  Support Devices: pos=173,370 neg=3,618 unc=7,904 nan=59,852
+
+LABEL RAW COUNTS (unique studies, first row per study):
+  No Finding: pos=27,894 neg=13,166 unc=258,096 nan=9
+  Enlarged Cardiomediastinum: pos=12,466 neg=21,560 unc=25,258 nan=119,945
+  Cardiomegaly: pos=34,310 neg=13,734 unc=17,086 nan=117,022
+  Lung Opacity: pos=148,134 neg=8,278 unc=7,554 nan=67,604
+  Pneumonia: pos=4,106 neg=28,332 unc=2,554 nan=132,091
+  Pleural Effusion: pos=120,476 neg=16,976 unc=38,556 nan=61,583
+  Pleural Other: pos=4,084 neg=3,148 unc=156 nan=145,893
+  Fracture: pos=11,144 neg=1,646 unc=4,040 nan=141,172
+  Support Devices: pos=171,196 neg=3,558 unc=7,770 nan=58,325
+
+rows with all labels in {0,1}: 0 / 152,298
+
+test_csv: /resnick/groups/CS156b/from_central/data/student_labels/test_ids.csv rows=22,596 cols=['Id', 'Path']...
