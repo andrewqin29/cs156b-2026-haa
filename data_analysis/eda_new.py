@@ -109,7 +109,6 @@ def fig_technical_analysis(df, out_dir, dpi, n, rng):
     ax.set_xlabel("Correlation Coefficient"); ax.set_xlim(0, 1)
     save(fig, out_dir / "07_symmetry_analysis.png", dpi)
 
-# ── Main ───────────────────────────────────────────────────────────────────
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--train_csv", type=Path, default=DEFAULT_TRAIN_CSV)
