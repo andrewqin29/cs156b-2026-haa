@@ -1,0 +1,35 @@
+Dataset Summary: train2023.csv
+------------------------------
+Total Images:   178,158
+Total Patients: 51,632
+Total Studies:  149,597
+
+Studies per Patient:
+count    51632.000000
+mean         2.897370
+std          4.156534
+min          1.000000
+25%          1.000000
+50%          1.000000
+75%          3.000000
+max         91.000000
+
+Images per Patient:
+count    51632.000000
+mean         3.450535
+std          4.626588
+min          1.000000
+25%          1.000000
+50%          2.000000
+75%          4.000000
+max         92.000000
+
+Images per Study:
+count    149597.000000
+mean          1.190920
+std           0.417073
+min           1.000000
+25%           1.000000
+50%           1.000000
+75%           1.000000
+max           3.000000

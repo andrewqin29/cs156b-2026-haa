@@ -21,7 +21,7 @@ set -euo pipefail
 # so do NOT derive paths from BASH_SOURCE. Use the submission directory.
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SCRIPT_DIR="${REPO_ROOT}"
-OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/front_512_data}"
+OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/full_512_nans_0_FIXED}"
 LOG_DIR="${REPO_ROOT}/logs"
 
 mkdir -p "${LOG_DIR}"
@@ -89,7 +89,8 @@ done
 "${PYTHON_BIN[@]}" build_manifests.py \
   --output_root "${OUT_ROOT}" \
   --val_split 0.15 \
-  --seed 42
+  --seed 42 \
+  --no_frontal_only
 
 # 2) Build preprocessed image cache + updated manifests with preprocessed_path
 "${PYTHON_BIN[@]}" prepare_images.py \

@@ -7,6 +7,12 @@ Design goals:
 - Produce train/val split with patient-level grouping to reduce leakage
 - Normalize labels into a training-friendly format with missing sentinel
 
+POSITIVE: 1.0
+NEGATIVE: -1.0
+UNCERTAIN: 0.0
+
+casting NaNs to 0.0
+
 """
 
 from __future__ import annotations
@@ -60,7 +66,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--val_split", type=float, default=0.15)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--missing_value", type=float, default=-999.0)
+    p.add_argument("--missing_value", type=float, default=0)
     p.add_argument(
         "--frontal_only",
         action="store_true",
@@ -104,15 +110,14 @@ def _prepare_train_df(
 
     # Convert labels to float and replace uncertain/missing with sentinel.
     df[LABEL_COLS] = df[LABEL_COLS].astype(float)
-    df[LABEL_COLS] = df[LABEL_COLS].replace(-1.0, missing_value).fillna(missing_value)
+    # leave 0 (uncertatin) laabels, update nans to -1 (negative class label)
+    df[LABEL_COLS] = df[LABEL_COLS].fillna(missing_value)
 
     df["patient_id"] = _extract_patient_id(df["Path"])
     return df
 
 
 def _patient_split(df: pd.DataFrame, val_split: float, seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if not 0.0 < val_split < 1.0:
-        raise ValueError(f"val_split must be in (0, 1), got {val_split}")
 
     unique_patients = df["patient_id"].dropna().astype(str).unique()
     rng = np.random.default_rng(seed)
