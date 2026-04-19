@@ -1,5 +1,3 @@
-
-
 from __future__ import annotations
 
 import argparse
@@ -44,7 +42,6 @@ VIEW_LATERAL = "lateral"
 VIEW_UNKNOWN = "unknown"
 
 
-
 def get_view_type(path_str: str) -> str:
     fname = Path(path_str).name.lower()
     if "frontal" in fname:
@@ -63,13 +60,12 @@ def get_study_id(row: pd.Series) -> str:
 
 
 def build_model(dropout: float = 0.4) -> nn.Module:
-    """ResNet50 with custom head. Backbone starts frozen."""
     model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
     in_features = model.fc.in_features
     model.fc = nn.Sequential(
         nn.Dropout(p=dropout),
         nn.Linear(in_features, NUM_CLASSES),
-        nn.Tanh()  # Output squashed to [-1, 1] for MSE alignment
+        nn.Tanh()
     )
     _freeze_backbone(model)
     return model
@@ -99,14 +95,13 @@ def make_optimizer(model: nn.Module, lr: float, phase: int) -> torch.optim.Optim
 
 def masked_mse_loss(
     preds: torch.Tensor,
-    raw_labels: torch.Tensor,      # {-1, 0, +1}  where 0 = unmentioned
+    raw_labels: torch.Tensor,
     pos_weight: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
     0 labels (unmentioned) are fully masked out — not trained on at all.
-    This directly mirrors the grader which also excludes blank labels from scoring.
     """
-    mask = (raw_labels != 0).float()   # only ±1 labels contribute
+    mask = (raw_labels != 0).float() 
 
     weights = torch.ones_like(raw_labels)
     if pos_weight is not None:
@@ -139,7 +134,6 @@ def blend_loss(w, frontal_preds, lateral_preds, labels, mask):
 
 
 def _known_mask(raw_labels: np.ndarray) -> np.ndarray:
-    """Boolean mask: True where label is ±1 (known), False where 0 (uncertain)."""
     return raw_labels != UNCERTAIN
 
 
@@ -228,8 +222,6 @@ def aggregate_study_predictions(
 
 
 class MultiViewDataset(Dataset):
-
-
     def __init__(
         self,
         df: pd.DataFrame,
@@ -306,7 +298,7 @@ def run_epoch(
             pw = pos_weight.to(device) if (pos_weight is not None and training) else None
 
             with torch.amp.autocast(device_type=device, enabled=(device == "cuda")):
-                preds = model(imgs)  # Predictions are now in [-1, 1]
+                preds = model(imgs)
                 loss  = masked_mse_loss(preds, raw_labels, pw)
 
             if training:
@@ -328,12 +320,11 @@ def run_epoch(
             all_study_ids.extend(list(study_ids))
             all_view_types.extend(list(view_types))
 
-    # We do NOT apply sigmoid here anymore, Tanh scores map cleanly for ranking/metrics
     scores     = torch.cat(all_preds).numpy()
     raw_labels = torch.cat(all_raw_labels).numpy()
 
     avg_loss  = total_loss / len(loader.dataset)
-    image_auc = _mean_auc(scores, raw_labels)   # AUC on known ±1 labels only
+    image_auc = _mean_auc(scores, raw_labels) 
 
     return avg_loss, image_auc, scores, raw_labels, all_study_ids, all_view_types
 

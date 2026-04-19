@@ -35,5 +35,5 @@ $PYTHON_BIN train_multiview.py \
     --patience 7 \
     --num_workers 16 \
     --output_dir /resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/checkpoints_mse_tanh_512 \
-    --train_csv /resnick/groups/CS156b/from_central/2026/haa/full_512_nans_neg_FIXED/manifests_preprocessed/train_manifest_preprocessed.csv \
-    --val_csv /resnick/groups/CS156b/from_central/2026/haa/full_512_nans_neg_FIXED/manifests_preprocessed/val_manifest_preprocessed.csv
+    --train_csv /resnick/groups/CS156b/from_central/2026/haa/full_512_nans_0_FIXED/manifests_preprocessed/train_manifest_preprocessed.csv \
+    --val_csv /resnick/groups/CS156b/from_central/2026/haa/full_512_nans_0_FIXED/manifests_preprocessed/val_manifest_preprocessed.csv
