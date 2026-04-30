@@ -11,7 +11,7 @@ POSITIVE: 1.0
 NEGATIVE: -1.0
 UNCERTAIN: 0.0
 
-casting NaNs to 0.0
+casting NaNs to -999
 
 """
 
@@ -36,6 +36,7 @@ LABEL_COLS = [
     "Support Devices",
 ]
 
+SENTINEL = -999
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
@@ -83,7 +84,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def _extract_patient_id(path_series: pd.Series) -> pd.Series:
-    # CheXpert path format includes pidXXXXX; fall back to path if missing pattern.
     pid = path_series.astype(str).str.extract(r"(pid\d+)", expand=False)
     return pid.fillna(path_series.astype(str))
 
@@ -92,7 +92,6 @@ def _prepare_train_df(
     train_csv: Path,
     train_img_root: Path,
     frontal_only: bool,
-    missing_value: float,
 ) -> pd.DataFrame:
     df = pd.read_csv(train_csv)
 
@@ -110,8 +109,7 @@ def _prepare_train_df(
 
     # Convert labels to float and replace uncertain/missing with sentinel.
     df[LABEL_COLS] = df[LABEL_COLS].astype(float)
-    # leave 0 (uncertatin) laabels, update nans to -1 (negative class label)
-    df[LABEL_COLS] = df[LABEL_COLS].fillna(missing_value)
+    df[LABEL_COLS] = df[LABEL_COLS].fillna(SENTINEL)
 
     df["patient_id"] = _extract_patient_id(df["Path"])
     return df
@@ -167,8 +165,7 @@ def main() -> None:
     train_all = _prepare_train_df(
         train_csv=args.train_csv,
         train_img_root=args.train_img_root,
-        frontal_only=args.frontal_only,
-        missing_value=args.missing_value,
+        frontal_only=args.frontal_only
     )
 
     train_df, val_df = _patient_split(train_all, val_split=args.val_split, seed=args.seed)
@@ -191,7 +188,6 @@ def main() -> None:
         "train_unique_patients": int(train_df["patient_id"].nunique()),
         "val_unique_patients": int(val_df["patient_id"].nunique()),
         "frontal_only": bool(args.frontal_only),
-        "missing_value": float(args.missing_value),
         "output_root": str(args.output_root),
         "manifests": {
             "train": str(train_path),

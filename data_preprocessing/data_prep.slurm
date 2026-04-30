@@ -2,10 +2,10 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=16G
 #SBATCH --partition=expansion
-#SBATCH --time=24:00:00
+#SBATCH --time=1:00:00
 
 #SBATCH -J "data_prep"
 #SBATCH --mail-type=BEGIN
@@ -21,7 +21,7 @@ set -euo pipefail
 # so do NOT derive paths from BASH_SOURCE. Use the submission directory.
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SCRIPT_DIR="${REPO_ROOT}"
-OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/full_512_nans_0_FIXED}"
+OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/full_512_nans_-999_JPG}"
 LOG_DIR="${REPO_ROOT}/logs"
 
 mkdir -p "${LOG_DIR}"
@@ -97,7 +97,7 @@ done
   --manifest_root "${OUT_ROOT}/manifests" \
   --output_root "${OUT_ROOT}" \
   --image_size 512 \
-  --image_format png
+  --image_format jpg
 
 echo "Data prep complete."
 echo "Base output root: ${OUT_ROOT}"

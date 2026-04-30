@@ -6,7 +6,6 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:nvidia_l40s:1
 #SBATCH --time=00:30:00
 
 #SBATCH -J "resnet_inference"
@@ -15,23 +14,22 @@
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
 
-LOG_DIR=/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/logs
 #SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/logs/slurm-infer-%j.out
 #SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/logs/slurm-infer-%j.err
+
+LOG_DIR=/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/logs
 
 mkdir -p $LOG_DIR
 
 PYTHON_BIN=/resnick/groups/CS156b/from_central/2026/haa/hgaston/miniconda3/envs/cs156b/bin/python
-CKPT_DIR=/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/checkpoints_mse_tanh_512
+CKPT_DIR=/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/checkpoints_v3
 INFER_DIR=/resnick/groups/CS156b/from_central/2026/haa/hgaston/cs156b-2026-haa/resnet/inference
 
 cd $INFER_DIR
 
 $PYTHON_BIN infer_multiview.py \
     --frontal_checkpoint $CKPT_DIR/best_frontal.pt \
-    --lateral_checkpoint $CKPT_DIR/best_lateral.pt \
-    --csv /resnick/groups/CS156b/from_central/2026/haa/full_512_nans_neg_FIXED/manifests_preprocessed/test_manifest_preprocessed.csv \
-    --output $INFER_DIR/submission.csv \
-    --frontal_weight 0.65 \
+    --csv /resnick/groups/CS156b/from_central/2026/haa/full_512_nans_-999_JPG/manifests_preprocessed/test_manifest_preprocessed.csv \
+    --output $INFER_DIR/submission_v3.csv \
     --batch_size 256 \
     --num_workers 8

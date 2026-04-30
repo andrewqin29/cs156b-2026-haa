@@ -11,10 +11,9 @@ import torch
 import torch.nn as nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-from torchvision import models, transforms
+from torchvision import models
+from torchvision.transforms import v2
 from tqdm import tqdm
-
-from scipy.optimize import minimize
 
 
 LABEL_COLS = [
@@ -33,6 +32,7 @@ NUM_CLASSES = len(LABEL_COLS)
 POSITIVE  =  1.0
 NEGATIVE  = -1.0
 UNCERTAIN =  0.0
+SENTINEL = -999.0 #for new nan handling
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
@@ -94,47 +94,124 @@ def make_optimizer(model: nn.Module, lr: float, phase: int) -> torch.optim.Optim
 
 
 def masked_mse_loss(
-    preds: torch.Tensor,
-    raw_labels: torch.Tensor,
-    pos_weight: torch.Tensor | None = None,
+    preds:              torch.Tensor,
+    raw_labels:         torch.Tensor,
+    variance:           torch.Tensor | None = None,
+    pw:                 torch.Tensor | None = None,
+    nw:                 torch.Tensor | None = None,
+    consistency_lambda: float = 0.0,
 ) -> torch.Tensor:
+    consistency_lambda = consistency_lambda or 0.0
+
+    mask        = (raw_labels != SENTINEL).float()
+    weights     = torch.ones_like(raw_labels)
+
+    if pw is not None:
+        pw_expanded = pw.view(1, -1).expand_as(raw_labels)
+        weights     = torch.where(raw_labels == POSITIVE, pw_expanded, weights)
+    if nw is not None:
+        nw_expanded = nw.view(1, -1).expand_as(raw_labels)
+        weights     = torch.where(raw_labels == NEGATIVE, nw_expanded, weights)
+
+    weights     = weights * mask
+    safe_labels = raw_labels.clone()
+    safe_labels[raw_labels == SENTINEL] = 0.0
+
+    loss_matrix = nn.MSELoss(reduction="none")(preds, safe_labels)
+
+    # Variance scaling — divide each class loss by its label variance
+    if variance is not None:
+        var         = variance.to(preds.device).clamp(min=1e-6)
+        loss_matrix = loss_matrix / var.view(1, -1)
+
+    base_loss = (loss_matrix * weights).sum() / mask.sum().clamp(min=1)
+
+    no_finding  = preds[:, 0]
+    pathologies = preds[:, 1:]
+    penalty     = torch.relu(no_finding.unsqueeze(1)) * torch.relu(pathologies)
+
+    return base_loss + (consistency_lambda * penalty.mean())
+
+
+def compute_scaled_mse(
+    scores:    np.ndarray,
+    raw_labels: np.ndarray,
+    variance:  torch.Tensor,
+) -> tuple[float, dict[str, float]]:
     """
-    0 labels (unmentioned) are fully masked out — not trained on at all.
+    Computes variance-scaled MSE matching the competition metric.
+    Returns (mean_scaled_mse, per_class_dict).
     """
-    mask = (raw_labels != 0).float() 
+    var_np = variance.numpy()
+    per_class = {}
+    scaled_mses = []
 
-    weights = torch.ones_like(raw_labels)
-    if pos_weight is not None:
-        pw = pos_weight.view(1, -1).expand_as(raw_labels)
-        weights = torch.where(raw_labels == POSITIVE, pw, weights)
+    for i, name in enumerate(LABEL_COLS):
+        mask = (raw_labels[:, i] != SENTINEL)
+        if mask.sum() < 2:
+            per_class[name] = float("nan")
+            continue
+        mse = ((scores[mask, i] - raw_labels[mask, i]) ** 2).mean()
+        scaled = mse / max(var_np[i], 1e-6)
+        per_class[name] = float(scaled)
+        scaled_mses.append(scaled)
 
-    weights = weights * mask
+    mean_scaled = float(np.mean(scaled_mses)) if scaled_mses else float("nan")
+    return mean_scaled, per_class
 
-    loss = nn.MSELoss(reduction="none")(preds, raw_labels) * weights
-    return loss.sum() / mask.sum().clamp(min=1)
-
-def compute_pos_weights(train_df: pd.DataFrame, label_cols: list[str]) -> torch.Tensor:
-    weights = []
-    print("Per-class pos_weight:")
+def compute_class_weights(
+    train_df: pd.DataFrame,
+    label_cols: list[str],
+    max_weight: float = 2.0,
+    min_neg_frac: float = 0.05,
+    verbose: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    pos_weights = []
+    neg_weights = []
+    if verbose:
+        print("Per-class weights:")
     for col in label_cols:
-        vals = train_df[col]
-        n_pos = (vals ==  1.0).sum()
-        n_neg = (vals == -1.0).sum()
-        raw_w = n_neg / max(n_pos, 1)
-        capped = max(raw_w, 1.0)
-        print(f"  {col:<35} n_pos={n_pos:>6}  n_neg={n_neg:>6}  raw_w={raw_w:>6.2f}  capped={capped:.2f}")
-        weights.append(capped)
-    return torch.tensor(weights, dtype=torch.float32)
+        vals  = train_df[col]
+        n_pos = (vals == POSITIVE).sum()
+        n_neg = (vals == NEGATIVE).sum()
+        total = max(n_pos + n_neg, 1)
 
+        if n_pos < n_neg:
+            pw = min(total / (2 * max(n_pos, 1)), max_weight)
+            nw = 1.0
+        elif n_neg < n_pos:
+            nw = min(total / (2 * max(n_neg, 1)), max_weight) \
+                 if n_neg / total >= min_neg_frac else 1.0
+            pw = 1.0
+        else:
+            pw, nw = 1.0, 1.0
 
-def blend_loss(w, frontal_preds, lateral_preds, labels, mask):
-    blended = w * frontal_preds + (1-w) * lateral_preds
-    err = (blended - labels) ** 2
-    return (err * mask).sum() / mask.sum()
+        if verbose:
+            print(
+                f"  {col:<35} n_pos={n_pos:>6}  n_neg={n_neg:>6}  "
+                f"pos_w={pw:>6.2f}  neg_w={nw:.2f}"
+            )
+        pos_weights.append(pw)
+        neg_weights.append(nw)
+    return (
+        torch.tensor(pos_weights, dtype=torch.float32),
+        torch.tensor(neg_weights, dtype=torch.float32),
+    )
+
+def compute_label_variance(train_df: pd.DataFrame, label_cols: list[str]) -> torch.Tensor:
+    variances = []
+    print("Per-class label variance:")
+    for col in label_cols:
+        vals  = train_df[col]
+        known = vals[vals != SENTINEL]
+        var   = float(known.var())
+        print(f"  {col:<35} variance={var:.4f}")
+        variances.append(var)
+    return torch.tensor(variances, dtype=torch.float32)
 
 
 def _known_mask(raw_labels: np.ndarray) -> np.ndarray:
-    return raw_labels != UNCERTAIN
+    return (raw_labels == POSITIVE) | (raw_labels == NEGATIVE)
 
 
 def _binary_from_raw(raw_labels: np.ndarray) -> np.ndarray:
@@ -145,14 +222,30 @@ def _binary_from_raw(raw_labels: np.ndarray) -> np.ndarray:
 def _binary_auc(y_true: np.ndarray, y_score: np.ndarray) -> float:
     y_true  = y_true.astype(np.int64)
     y_score = y_score.astype(np.float64)
+
     n_pos = int((y_true == 1).sum())
     n_neg = int((y_true == 0).sum())
     if n_pos == 0 or n_neg == 0:
         return float("nan")
+
+    # Proper tie-aware ranking
     order = np.argsort(y_score)
-    ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, len(y_score) + 1)
-    return (ranks[y_true == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+    sorted_scores = y_score[order]
+
+    ranks = np.zeros_like(sorted_scores, dtype=np.float64)
+    i = 0
+    while i < len(sorted_scores):
+        j = i
+        while j + 1 < len(sorted_scores) and sorted_scores[j + 1] == sorted_scores[i]:
+            j += 1
+        avg_rank = (i + j + 2) / 2.0
+        ranks[i:j+1] = avg_rank
+        i = j + 1
+
+    full_ranks = np.empty_like(ranks)
+    full_ranks[order] = ranks
+
+    return (full_ranks[y_true == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
 
 
 def _mean_auc(scores: np.ndarray, raw_labels: np.ndarray) -> float:
@@ -183,123 +276,123 @@ def compute_per_class_auc(scores: np.ndarray, raw_labels: np.ndarray) -> dict[st
     return out
 
 
-def aggregate_study_predictions(
-    study_ids: list[str],
-    view_types: list[str],
-    scores: np.ndarray,   
-    raw_labels: np.ndarray,  
-    frontal_weight: float = 0.6,
-) -> tuple[np.ndarray, np.ndarray]:
-    studies: dict[str, dict] = defaultdict(
-        lambda: {VIEW_FRONTAL: [], VIEW_LATERAL: [], "raw_labels": []}
-    )
+def aggregate_study_predictions(study_ids, scores, raw_labels):
+    studies = defaultdict(lambda: {"scores": [], "labels": []})
+    for sid, s, rl in zip(study_ids, scores, raw_labels):
+        studies[sid]["scores"].append(s)
+        studies[sid]["labels"].append(rl)
 
-    for sid, vt, s, rl in zip(study_ids, view_types, scores, raw_labels):
-        bucket = vt if vt in (VIEW_FRONTAL, VIEW_LATERAL) else VIEW_FRONTAL
-        studies[sid][bucket].append(s)
-        studies[sid]["raw_labels"].append(rl)
-
-    sorted_sids = sorted(studies.keys())
     all_scores, all_raw = [], []
-
-    for sid in sorted_sids:
+    for sid in sorted(studies.keys()):
         sd = studies[sid]
-        f = np.mean(sd[VIEW_FRONTAL], axis=0) if sd[VIEW_FRONTAL] else None
-        l = np.mean(sd[VIEW_LATERAL], axis=0) if sd[VIEW_LATERAL] else None
-
-        if f is not None and l is not None:
-            score = frontal_weight * f + (1 - frontal_weight) * l
+        stacked = np.array(sd["scores"])
+        if len(stacked) == 1:
+            study_score = stacked[0]
         else:
-            score = f if f is not None else l
+            confidence = np.abs(stacked) 
+            weights = confidence / (confidence.sum(axis=0, keepdims=True) + 1e-8)
+            study_score = (stacked * weights).sum(axis=0)
 
-        study_raw = np.max(sd["raw_labels"], axis=0)
-
-        all_scores.append(score)
-        all_raw.append(study_raw)
+        all_scores.append(study_score)
+        labels = np.array(sd["labels"])
+        study_label = np.zeros(labels.shape[1])
+        for c in range(labels.shape[1]):
+            col = labels[:, c]
+            if (col == 1.0).any():
+                study_label[c] = 1.0
+            elif (col == -1.0).any():
+                study_label[c] = -1.0
+            elif (col == 0.0).any():
+                study_label[c] = 0.0
+            else:
+                study_label[c] = SENTINEL
+        all_raw.append(study_label)
 
     return np.array(all_scores), np.array(all_raw)
 
 
 
 class MultiViewDataset(Dataset):
-    def __init__(
-        self,
-        df: pd.DataFrame,
-        transform,
-        path_col: str,
-        view_filter: str | None = None,
-    ):
+    def __init__(self, df, transform, path_col, view_filter=None):
         df = df.copy()
         df["_view_type"] = df["Path"].apply(get_view_type)
         df["_study_id"]  = df.apply(get_study_id, axis=1)
-
         if view_filter is not None:
             df = df[df["_view_type"] == view_filter]
-
         self.df        = df.reset_index(drop=True)
         self.transform = transform
-        self.path_col  = path_col
 
-    def __len__(self) -> int:
-        return len(self.df)
+        # Pre-extract for fast indexing
+        self.paths      = self.df[path_col].tolist()
+        self.labels     = self.df[LABEL_COLS].values.astype(np.float32)
+        self.study_ids  = self.df["_study_id"].tolist()
+        self.view_types = self.df["_view_type"].tolist()
 
-    def __getitem__(self, idx: int):
-        row = self.df.iloc[idx]
-        img = Image.open(row[self.path_col]).convert("RGB")
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, idx):
+        img = Image.open(self.paths[idx]).convert("RGB")
         if self.transform:
             img = self.transform(img)
-
-        raw_labels = torch.tensor(
-            row[LABEL_COLS].values.astype(np.float32)
+        return (
+            img,
+            torch.tensor(self.labels[idx]),
+            self.study_ids[idx],
+            self.view_types[idx],
         )
-
-        return img, raw_labels, row["_study_id"], row["_view_type"]
 
 
 def get_transforms(size: int, augment: bool):
-    ops = [transforms.Resize((size, size))]
+    ops = [
+        v2.ToImage(),
+        v2.ToDtype(torch.float32, scale=True),
+        v2.Resize((size, size), antialias=True)
+    ]
     if augment:
         ops += [
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(10),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1),
+            v2.RandomHorizontalFlip(),
+            v2.RandomRotation(10),
+            v2.ColorJitter(brightness=0.1, contrast=0.1),
         ]
     ops += [
-        transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        v2.Normalize(IMAGENET_MEAN, IMAGENET_STD),
     ]
-    return transforms.Compose(ops)
-
+    return v2.Compose(ops)
 
 
 def run_epoch(
-    model: nn.Module,
-    loader: DataLoader,
+    model:              nn.Module,
+    loader:             DataLoader,
     optimizer,
-    device: str,
-    training: bool,
-    pos_weight: torch.Tensor | None = None,
+    device:             str,
+    training:           bool,
+    variance:           torch.Tensor | None = None,
+    pos_weight:         torch.Tensor | None = None,
+    neg_weight:         torch.Tensor | None = None,
+    consistency_lambda: float | None = None,
     scaler=None,
 ) -> tuple[float, float, np.ndarray, np.ndarray, list[str], list[str]]:
   
     model.train() if training else model.eval()
 
-    total_loss = 0.0
+    total_loss_gpu = torch.tensor(0.0, device=device)
     all_preds, all_raw_labels = [], []
-    all_study_ids: list[str]  = []
-    all_view_types: list[str] = []
+    all_study_ids, all_view_types = [], []
 
     ctx = torch.enable_grad() if training else torch.no_grad()
     with ctx:
+        var_device = variance.to(device) if variance is not None else None
+        pw = pos_weight.to(device) if (pos_weight is not None and training) else None
+        nw = neg_weight.to(device) if (neg_weight is not None and training) else None
+
         for imgs, raw_labels, study_ids, view_types in tqdm(loader, leave=False, mininterval=10):
             imgs       = imgs.to(device, non_blocking=True)
             raw_labels = raw_labels.to(device, non_blocking=True)
 
-            pw = pos_weight.to(device) if (pos_weight is not None and training) else None
-
             with torch.amp.autocast(device_type=device, enabled=(device == "cuda")):
-                preds = model(imgs)
-                loss  = masked_mse_loss(preds, raw_labels, pw)
+                preds = model(imgs).float()
+                loss = masked_mse_loss(preds, raw_labels, var_device, pw, nw, consistency_lambda)
 
             if training:
                 optimizer.zero_grad(set_to_none=True)
@@ -314,16 +407,16 @@ def run_epoch(
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                     optimizer.step()
 
-            total_loss += loss.item() * imgs.size(0)
-            all_preds.append(preds.detach().cpu())
-            all_raw_labels.append(raw_labels.detach().cpu())
+            total_loss_gpu += loss.detach() * imgs.size(0)
+            all_preds.append(preds.detach())
+            all_raw_labels.append(raw_labels.detach())
             all_study_ids.extend(list(study_ids))
             all_view_types.extend(list(view_types))
 
-    scores     = torch.cat(all_preds).numpy()
-    raw_labels = torch.cat(all_raw_labels).numpy()
+    scores     = torch.cat(all_preds).cpu().numpy()
+    raw_labels = torch.cat(all_raw_labels).cpu().numpy()
 
-    avg_loss  = total_loss / len(loader.dataset)
+    avg_loss = total_loss_gpu.item() / len(loader.dataset)
     image_auc = _mean_auc(scores, raw_labels) 
 
     return avg_loss, image_auc, scores, raw_labels, all_study_ids, all_view_types
@@ -331,15 +424,17 @@ def run_epoch(
 
 
 def train_view_model(
-    view_name: str,
-    train_df: pd.DataFrame,
-    val_df: pd.DataFrame,
+    view_name:  str,
+    train_df:   pd.DataFrame,
+    val_df:     pd.DataFrame,
     args,
-    device: str,
+    device:     str,
     scaler,
     output_dir: Path,
     epoch_csv_path: Path,
-    pos_weight
+    variance:   torch.Tensor | None = None,
+    pos_weight: torch.Tensor | None = None,
+    neg_weight: torch.Tensor | None = None,
 ) -> nn.Module | None:
 
     print(f"\n{'='*60}")
@@ -361,8 +456,10 @@ def train_view_model(
         num_workers=args.num_workers,
         pin_memory=(device == "cuda"),
         persistent_workers=(args.num_workers > 0),
-        prefetch_factor=2 if args.num_workers > 0 else None,
     )
+
+    if args.num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 2
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,  **loader_kwargs)
     val_loader   = DataLoader(val_ds,   batch_size=args.batch_size, shuffle=False, **loader_kwargs)
 
@@ -370,7 +467,7 @@ def train_view_model(
     optimizer = make_optimizer(model, args.lr, phase=1)
     phase     = 1
 
-    best_auc  = 0.0
+    best_mse = float("inf")
     best_path = output_dir / f"best_{view_name}.pt"
 
     patience_count = 0
@@ -390,46 +487,69 @@ def train_view_model(
         t0 = time.time()
         train_loss, train_auc, *_ = run_epoch(
             model, train_loader, optimizer, device,
-            training=True, pos_weight=pos_weight, scaler=scaler,
+            training=True,
+            variance=variance,
+            pos_weight=pos_weight,
+            neg_weight=neg_weight,
+            consistency_lambda=args.consistency_lambda,
+            scaler=scaler,
         )
-        val_loss, val_auc, val_scores, val_raw, val_sids, val_vtypes = run_epoch(
+
+        val_loss, val_auc, val_scores, val_raw, val_sids, _ = run_epoch(
             model, val_loader, optimizer, device,
             training=False,
+            variance=variance,
+            consistency_lambda=args.consistency_lambda,
         )
         elapsed = time.time() - t0
 
-        study_scores, study_raw = aggregate_study_predictions(
-            val_sids, val_vtypes, val_scores, val_raw, args.frontal_weight
-        )
+        study_scores, study_raw = aggregate_study_predictions(val_sids, val_scores, val_raw)
         study_auc = _mean_auc(study_scores, study_raw)
+
+        # Unweighted MSEs for reference
+        known_mask_img   = (val_raw   != SENTINEL)
+        known_mask_study = (study_raw != SENTINEL)
+        val_mse   = ((val_scores[known_mask_img]     - val_raw[known_mask_img])     ** 2).mean()
+        study_mse = ((study_scores[known_mask_study] - study_raw[known_mask_study]) ** 2).mean()
+
+        # Variance-scaled study MSE — competition metric
+        scaled_study_mse, scaled_per_class = compute_scaled_mse(study_scores, study_raw, variance)
 
         print(
             f"  [{view_name}] Epoch {epoch:3d} [phase {phase}]: "
-            f"train_auc={train_auc:.4f}  val_img_auc={val_auc:.4f}  "
-            f"val_study_auc={study_auc:.4f}  ({elapsed:.0f}s)"
+            f"train_auc={train_auc:.4f}  train_mse={train_loss:.4f}  "
+            f"val_study_auc={study_auc:.4f}  study_mse={study_mse:.4f}  "
+            f"scaled_mse={scaled_study_mse:.4f}  ({elapsed:.0f}s)"
         )
 
+        # CSV — add scaled_study_mse column
         with open(epoch_csv_path, "a") as f:
             f.write(
                 f"{view_name},{epoch},{phase},"
-                f"{train_auc:.6f},{val_auc:.6f},{study_auc:.6f},{elapsed:.1f}\n"
+                f"{train_auc:.6f},{train_loss:.6f},{val_auc:.6f},{study_auc:.6f},"
+                f"{val_mse:.6f},{study_mse:.6f},{scaled_study_mse:.6f},{elapsed:.1f}\n"
             )
 
-        if val_auc > best_auc:
-            best_auc = val_auc
+        # Checkpoint on scaled MSE
+        if scaled_study_mse < best_mse:
+            best_mse = scaled_study_mse
             patience_count = 0
-            torch.save(
-                {
-                    "model_state": model.state_dict(),
-                    "epoch": epoch,
-                    "val_auc": val_auc,
-                    "view": view_name,
-                    "img_size": args.img_size,
-                    "dropout": args.dropout,
-                },
-                best_path,
-            )
-            print(f"    ✓ new best val image-AUC: {best_auc:.4f}")
+            torch.save({
+                "model_state":    model.state_dict(),
+                "epoch":          int(epoch),
+                "scaled_mse":     float(scaled_study_mse),
+                "study_mse":      float(study_mse),
+                "val_auc":        float(val_auc),
+                "view":           str(view_name),
+                "img_size":       int(args.img_size),
+                "dropout":        float(args.dropout),
+            }, best_path)
+            print(f"    ✓ new best scaled MSE: {best_mse:.4f}")
+            # Per-class scaled MSE
+            print(f"    {'Class':<35} {'Scaled MSE':>10}")
+            for name in LABEL_COLS:
+                v = scaled_per_class[name]
+                print(f"    {name:<35} {f'{v:.4f}' if not np.isnan(v) else '     nan':>10}")
         else:
             if epoch >= args.unfreeze_epoch:
                 patience_count += 1
@@ -440,8 +560,8 @@ def train_view_model(
 
 
     if best_path.exists():
-        print(f"  [{view_name}] Loading best checkpoint (val_img_auc={best_auc:.4f})...")
-        ckpt = torch.load(best_path, map_location=device)
+        print(f"  [{view_name}] Loading best checkpoint (scaled_mse={best_mse:.4f})...")        
+        ckpt = torch.load(best_path, map_location=device, weights_only=False)
         model.load_state_dict(ckpt["model_state"])
     else:
         print(f"  WARNING: No best checkpoint found for {view_name}!")
@@ -457,97 +577,48 @@ def evaluate_combined(
         num_workers=args.num_workers,
         pin_memory=(device == "cuda"),
         persistent_workers=(args.num_workers > 0),
-        prefetch_factor=2 if args.num_workers > 0 else None,
     )
+
+    if args.num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 2
 
     view_scores = {} 
     for model, view_name in [(frontal_model, VIEW_FRONTAL), (lateral_model, VIEW_LATERAL)]:
-        if model is None:
-            continue
+        if model is None: continue
         ds = MultiViewDataset(val_df, get_transforms(args.img_size, False), path_col, view_filter=view_name)
-        if len(ds) == 0:
-            continue
+        if len(ds) == 0: continue
         loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, **loader_kwargs)
-        _, _, scores, raw, sids, vtypes = run_epoch(
-            model, loader, optimizer=None, device=device, training=False
+        
+        _, _, scores, raw, sids, _ = run_epoch(
+            model, loader, None, device, False, variance=None, consistency_lambda=args.consistency_lambda
         )
-        view_scores[view_name] = (scores, raw, sids, vtypes)
+        view_scores[view_name] = (scores, raw, sids)
 
     if not view_scores:
         print("  WARNING: No predictions to aggregate.")
         return
 
-    frontal_study_scores = lateral_study_scores = study_raw = None
-
-    if VIEW_FRONTAL in view_scores and VIEW_LATERAL in view_scores:
-        f_scores, f_raw, f_sids, f_vtypes = view_scores[VIEW_FRONTAL]
-        l_scores, l_raw, l_sids, l_vtypes = view_scores[VIEW_LATERAL]
-
-        frontal_study_scores, frontal_study_raw = aggregate_study_predictions(
-            f_sids, f_vtypes, f_scores, f_raw, frontal_weight=1.0
-        )
-        lateral_study_scores, lateral_study_raw = aggregate_study_predictions(
-            l_sids, l_vtypes, l_scores, l_raw, frontal_weight=0.0
-        )
-
-        f_sids_set = set(f_sids)
-        l_sids_set = set(l_sids)
-        both_views = f_sids_set & l_sids_set
-
-        if len(both_views) > 10:
-            sorted_both = sorted(both_views)
-            all_f_sids = sorted(set(f_sids))
-            all_l_sids = sorted(set(l_sids))
-            f_idx = {s: i for i, s in enumerate(all_f_sids)}
-            l_idx = {s: i for i, s in enumerate(all_l_sids)}
-
-            f_arr = np.array([frontal_study_scores[f_idx[s]] for s in sorted_both])
-            l_arr = np.array([lateral_study_scores[l_idx[s]] for s in sorted_both])
-            lbl   = np.array([frontal_study_raw[f_idx[s]]    for s in sorted_both])
-            mask  = (lbl != 0)
-
-            result = minimize(
-                lambda w: ((w[0] * f_arr + (1-w[0]) * l_arr - lbl) ** 2)[mask].mean(),
-                x0=np.array([args.frontal_weight]),
-                bounds=[(0, 1)],
-                method="L-BFGS-B",
-            )
-            optimal_weight = float(result.x[0])
-            print(f"  Optimal frontal_weight: {optimal_weight:.4f}  (was {args.frontal_weight:.2f})")
-        else:
-            optimal_weight = args.frontal_weight
-            print(f"  Not enough dual-view studies to optimize weight, using {optimal_weight:.2f}")
-    else:
-        optimal_weight = args.frontal_weight
-
     all_scores = np.concatenate([v[0] for v in view_scores.values()], axis=0)
     all_raw    = np.concatenate([v[1] for v in view_scores.values()], axis=0)
     all_sids   = sum([v[2] for v in view_scores.values()], [])
-    all_vtypes = sum([v[3] for v in view_scores.values()], [])
 
     img_auc = _mean_auc(all_scores, all_raw)
 
-    study_scores, study_raw = aggregate_study_predictions(
-        all_sids, all_vtypes, all_scores, all_raw, optimal_weight
-    )
+    study_scores, study_raw = aggregate_study_predictions(all_sids, all_scores, all_raw)
+    
     study_auc    = _mean_auc(study_scores, study_raw)
     study_auc_pc = compute_per_class_auc(study_scores, study_raw)
 
     print(f"\n  {split_name.upper()} — image-level mean AUC : {img_auc:.4f}")
     print(f"  {split_name.upper()} — study-level mean AUC : {study_auc:.4f}")
-    print(f"  (optimal_frontal_weight={optimal_weight:.4f})\n")
     print(f"  {'Class':<35} {'Study AUC':>10}")
     print(f"  {'-'*35} {'-'*10}")
     for name in LABEL_COLS:
         v = study_auc_pc[name]
         print(f"  {name:<35} {f'{v:.4f}' if not np.isnan(v) else '     nan':>10}")
 
-    pd.DataFrame([{"optimal_frontal_weight": optimal_weight}]).to_csv(
-        output_dir / "optimal_blend_weight.csv", index=False
-    )
     rows = [{"class": k, f"{split_name}_study_auc": v} for k, v in study_auc_pc.items()]
     pd.DataFrame(rows).to_csv(output_dir / f"per_class_study_auc_{split_name}.csv", index=False)
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -561,35 +632,33 @@ def main() -> None:
     parser.add_argument("--img_size",        type=int,   default=512)
     parser.add_argument("--unfreeze_epoch",  type=int,   default=2)
     parser.add_argument("--num_workers",     type=int,   default=6)
-    parser.add_argument("--frontal_weight",  type=float, default=0.6,
-                        help="Blend weight for frontal in study-level aggregation")
     parser.add_argument("--skip_frontal",    action="store_true")
     parser.add_argument("--skip_lateral",    action="store_true")
     parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument("--consistency_lambda", type=float, default=0.1)
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    scaler = torch.amp.GradScaler("cuda") if device == "cuda" else None
+    scaler = torch.amp.GradScaler('cuda') if device == "cuda" else None
     if device == "cuda":
         torch.backends.cudnn.benchmark = True
 
     print(
         f"Device: {device}  |  img_size: {args.img_size}  |  batch: {args.batch_size}  |  "
         f"workers: {args.num_workers}  |  lr: {args.lr:.1e}  |  "
-        f"unfreeze @ epoch {args.unfreeze_epoch}  |  "
-        f"frontal_weight: {args.frontal_weight:.2f}"
+        f"unfreeze @ epoch {args.unfreeze_epoch}"
     )
 
-    epoch_csv = args.output_dir / "epoch_auc.csv"
+    epoch_csv = args.output_dir / "epoch_auc_lateral.csv"
     with open(epoch_csv, "w") as f:
-        f.write("view,epoch,phase,train_img_auc,val_img_auc,val_study_auc,epoch_time_s\n")
-
+        f.write("view,epoch,phase,train_img_auc,train_mse,val_img_auc,val_study_auc,"
+            "val_img_mse,val_study_mse,val_scaled_mse,epoch_time_s\n")
     train_df = pd.read_csv(args.train_csv)
     val_df   = pd.read_csv(args.val_csv)
 
-    pos_weight = compute_pos_weights(train_df, LABEL_COLS)
+    variance = compute_label_variance(train_df, LABEL_COLS)
 
     train_df["_view_type"] = train_df["Path"].apply(get_view_type)
     val_df["_view_type"]   = val_df["Path"].apply(get_view_type)
@@ -608,13 +677,17 @@ def main() -> None:
     frontal_model = None
     if not args.skip_frontal:
         frontal_model = train_view_model(
-            VIEW_FRONTAL, train_df, val_df, args, device, scaler, args.output_dir, epoch_csv, pos_weight
+            VIEW_FRONTAL, train_df, val_df, args, device, scaler,
+            args.output_dir, epoch_csv,
+            variance=variance,
+            pos_weight=None,        # no class weights
+            neg_weight=None,
         )
     else:
         p = args.output_dir / f"best_{VIEW_FRONTAL}.pt"
         if p.exists():
             print(f"\nLoading existing frontal model from {p}")
-            ckpt = torch.load(p, map_location=device)
+            ckpt = torch.load(p, map_location=device, weights_only=False)
             frontal_model = build_model(ckpt.get("dropout", args.dropout)).to(device)
             frontal_model.load_state_dict(ckpt["model_state"])
         else:
@@ -623,13 +696,17 @@ def main() -> None:
     lateral_model = None
     if not args.skip_lateral:
         lateral_model = train_view_model(
-            VIEW_LATERAL, train_df, val_df, args, device, scaler, args.output_dir, epoch_csv, pos_weight
+            VIEW_LATERAL, train_df, val_df, args, device, scaler,
+            args.output_dir, epoch_csv,
+            variance=variance,
+            pos_weight=None,        # no class weights
+            neg_weight=None,
         )
     else:
         p = args.output_dir / f"best_{VIEW_LATERAL}.pt"
         if p.exists():
             print(f"\nLoading existing lateral model from {p}")
-            ckpt = torch.load(p, map_location=device)
+            ckpt = torch.load(p, map_location=device, weights_only=False)
             lateral_model = build_model(ckpt.get("dropout", args.dropout)).to(device)
             lateral_model.load_state_dict(ckpt["model_state"])
         else:
@@ -647,7 +724,7 @@ def main() -> None:
     evaluate_combined(frontal_model, lateral_model, val_df, args, device, args.output_dir)
 
     print(f"\nOutputs saved to {args.output_dir}/")
-    print("  epoch_auc.csv                   — per-epoch AUC by view + phase")
+    print("  epoch_auc_lateral.csv                   — per-epoch AUC by view + phase")
     print("  best_frontal.pt                 — best frontal model weights")
     print("  best_lateral.pt                 — best lateral model weights")
     print("  per_class_study_auc_val.csv     — per-class study-level AUC on val set")
