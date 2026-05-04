@@ -24,6 +24,12 @@ RESULTS_ROOT="${RESULTS_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/asqin
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-${RESULTS_ROOT}/runs/densenet169_full512_scaled_mse_mask0_baseline/best_model.pt}"
 TEST_CSV="${TEST_CSV:-${DATA_ROOT}/manifests_preprocessed/test_manifest_preprocessed.csv}"
 OUTPUT_PATH="${OUTPUT_PATH:-${RESULTS_ROOT}/inference/densenet169_full512_scaled_mse_submission.csv}"
+BATCH_SIZE="${BATCH_SIZE:-12}"
+NUM_WORKERS="${NUM_WORKERS:-16}"
+AGGREGATE="${AGGREGATE:-study}"
+IMAGE_SIZE="${IMAGE_SIZE:-}"
+MODEL_NAME="${MODEL_NAME:-}"
+DROPOUT="${DROPOUT:-}"
 MPLCONFIGDIR="${MPLCONFIGDIR:-/resnick/groups/CS156b/from_central/2026/haa/asqin/.config/matplotlib}"
 
 mkdir -p "${RESULTS_ROOT}/inference" "${RESULTS_ROOT}/slurm_logs" "${MPLCONFIGDIR}"
@@ -48,9 +54,20 @@ CMD=(
   --checkpoint "${CHECKPOINT_PATH}"
   --csv "${TEST_CSV}"
   --output "${OUTPUT_PATH}"
-  --batch_size 12
-  --num_workers 16
+  --batch_size "${BATCH_SIZE}"
+  --num_workers "${NUM_WORKERS}"
+  --aggregate "${AGGREGATE}"
 )
+
+if [[ -n "${IMAGE_SIZE}" ]]; then
+  CMD+=(--image_size "${IMAGE_SIZE}")
+fi
+if [[ -n "${MODEL_NAME}" ]]; then
+  CMD+=(--model_name "${MODEL_NAME}")
+fi
+if [[ -n "${DROPOUT}" ]]; then
+  CMD+=(--dropout "${DROPOUT}")
+fi
 
 printf 'Running:'
 printf ' %q' "${CMD[@]}"
