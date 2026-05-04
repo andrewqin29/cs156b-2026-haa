@@ -22,6 +22,7 @@ set -euo pipefail
 REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SCRIPT_DIR="${REPO_ROOT}"
 OUT_ROOT="${OUT_ROOT:-/resnick/groups/CS156b/from_central/2026/haa/full_512_nans_-999_JPG}"
+IMAGE_SIZE="${IMAGE_SIZE:-512}"
 LOG_DIR="${REPO_ROOT}/logs"
 
 mkdir -p "${LOG_DIR}"
@@ -96,7 +97,7 @@ done
 "${PYTHON_BIN[@]}" prepare_images.py \
   --manifest_root "${OUT_ROOT}/manifests" \
   --output_root "${OUT_ROOT}" \
-  --image_size 512 \
+  --image_size "${IMAGE_SIZE}" \
   --image_format jpg
 
 echo "Data prep complete."
