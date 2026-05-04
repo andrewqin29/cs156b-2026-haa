@@ -1,4 +1,4 @@
-"""Inference for DenseNet multi-label chest X-ray model on standardized front_512 data."""
+"""Inference for DenseNet scaled-MSE chest X-ray model on full-view data."""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ _TRAIN_DIR = Path(__file__).resolve().parents[1] / "train"
 sys.path.append(str(_TRAIN_DIR))
 
 from train_densenet import (  # noqa: E402
-    FRONT_512_ROOT,
+    DENSE_NET_RESULTS,
+    FULL_512_ROOT,
     LABEL_COLS,
     build_model,
     get_transforms,
@@ -60,12 +61,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--csv",
         type=Path,
-        default=FRONT_512_ROOT / "manifests_preprocessed" / "test_manifest_preprocessed.csv",
+        default=FULL_512_ROOT / "manifests_preprocessed" / "test_manifest_preprocessed.csv",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("/resnick/groups/CS156b/from_central/2026/haa/results/dense_net/inference/submission.csv"),
+        default=DENSE_NET_RESULTS / "inference" / "submission.csv",
     )
     parser.add_argument("--batch_size", type=int, default=12)
     parser.add_argument("--num_workers", type=int, default=8)
@@ -77,13 +78,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    device = (
-        "cuda"
-        if torch.cuda.is_available()
-        else "mps"
-        if torch.backends.mps.is_available()
-        else "cpu"
-    )
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
     if not args.checkpoint.exists():
         raise FileNotFoundError(f"Missing checkpoint: {args.checkpoint}")
@@ -97,7 +92,7 @@ def main() -> None:
     except TypeError:
         checkpoint = torch.load(args.checkpoint, map_location=device)
 
-    model_name = args.model_name or checkpoint.get("model_name", "densenet121")
+    model_name = args.model_name or checkpoint.get("model_name", "densenet169")
     image_size = args.image_size or checkpoint.get("image_size", 512)
     dropout = args.dropout if args.dropout is not None else checkpoint.get("dropout", 0.3)
 
@@ -133,8 +128,8 @@ def main() -> None:
     with torch.no_grad():
         for imgs, ids in loader:
             imgs = imgs.to(device, non_blocking=True)
-            probs = torch.sigmoid(model(imgs)).cpu().numpy()
-            all_preds.append(probs)
+            preds = model(imgs).cpu().numpy()
+            all_preds.append(preds)
             if isinstance(ids, torch.Tensor):
                 all_ids.extend(ids.cpu().numpy().tolist())
             else:
@@ -148,8 +143,10 @@ def main() -> None:
     print(f"Device: {device}")
     print(
         f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')} "
-        f"(val_auc={checkpoint.get('val_auc', float('nan')):.4f})"
+        f"(val_scaled_mse={checkpoint.get('val_scaled_mse', float('nan')):.4f}, "
+        f"val_auc={checkpoint.get('val_auc', float('nan')):.4f})"
     )
+    print(f"Prediction range: [{submission[LABEL_COLS].min().min():+.3f}, {submission[LABEL_COLS].max().max():+.3f}]")
     print(f"Saved {len(submission)} predictions to {args.output}")
 
 
