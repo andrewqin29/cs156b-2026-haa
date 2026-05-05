@@ -2,19 +2,18 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:nvidia_h200:1
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=96G
 #SBATCH --partition=gpu
-#SBATCH --time=2-00:00:00
-
-#SBATCH -J "efficientnet_b0_full_scaled_mse"
+#SBATCH --time=48:00:00
+#SBATCH -J "efficientnet_multiview_mse"
 #SBATCH --mail-user=askuamr@caltech.edu
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_results/slurm_logs/efficientnet-train-full512-%j.out
-#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_results/slurm_logs/efficientnet-train-full512-%j.err
+#SBATCH --output=/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_results/slurm_logs/efficientnet-multiview-train-%j.out
+#SBATCH --error=/resnick/groups/CS156b/from_central/2026/haa/askumar/efficient_net_results/slurm_logs/efficientnet-multiview-train-%j.err
 
 set -euo pipefail
 
@@ -26,22 +25,17 @@ TRAIN_CSV="${TRAIN_CSV:-${DATA_ROOT}/manifests_preprocessed/train_manifest_prepr
 VAL_CSV="${VAL_CSV:-${DATA_ROOT}/manifests_preprocessed/val_manifest_preprocessed.csv}"
 MODEL_NAME="${MODEL_NAME:-efficientnet_b0}"
 IMAGE_SIZE="${IMAGE_SIZE:-512}"
-EPOCHS="${EPOCHS:-15}"
-WARMUP_EPOCHS="${WARMUP_EPOCHS:-2}"
-BATCH_SIZE="${BATCH_SIZE:-12}"
-LR="${LR:-1e-4}"
-HEAD_LR_MULTIPLIER="${HEAD_LR_MULTIPLIER:-10.0}"
-WEIGHT_DECAY="${WEIGHT_DECAY:-1e-5}"
-NUM_WORKERS="${NUM_WORKERS:-16}"
-DROPOUT="${DROPOUT:-0.3}"
-PATIENCE="${PATIENCE:-5}"
-SEED="${SEED:-42}"
-RUN_NAME="${RUN_NAME:-efficientnet_b0_full512_scaled_mse_mask0_baseline}"
-TORCH_HOME_DIR="${TORCH_HOME_DIR:-/resnick/groups/CS156b/from_central/2026/haa/askumar/.torch_cache}"
-MPLCONFIGDIR="${MPLCONFIGDIR:-/resnick/groups/CS156b/from_central/2026/haa/askumar/.config/matplotlib}"
+EPOCHS="${EPOCHS:-50}"
+BATCH_SIZE="${BATCH_SIZE:-128}"
+LR="${LR:-5e-5}"
+DROPOUT="${DROPOUT:-0.4}"
+UNFREEZE_EPOCH="${UNFREEZE_EPOCH:-6}"
+PATIENCE="${PATIENCE:-7}"
+NUM_WORKERS="${NUM_WORKERS:-8}"
+CONSISTENCY_LAMBDA="${CONSISTENCY_LAMBDA:-0.0}"
+OUTPUT_DIR="${OUTPUT_DIR:-${RESULTS_ROOT}/multiview_runs/${MODEL_NAME}_full512_scaled_mse}"
 
-mkdir -p "${RESULTS_ROOT}/runs" "${RESULTS_ROOT}/slurm_logs" "${MPLCONFIGDIR}"
-export MPLCONFIGDIR
+mkdir -p "${RESULTS_ROOT}/slurm_logs" "${OUTPUT_DIR}"
 
 cd "${SCRIPT_DIR}"
 
@@ -59,28 +53,21 @@ else
   exit 1
 fi
 
-echo "Using Python: ${PYTHON_BIN[*]}"
-"${PYTHON_BIN[@]}" -c "import sys; import torch; print('Python:', sys.version); print('torch:', torch.__version__)"
-
 CMD=(
-  "${PYTHON_BIN[@]}" train_efficientnet.py
-  --train_csv "${TRAIN_CSV}"
-  --val_csv "${VAL_CSV}"
-  --runs_base "${RESULTS_ROOT}/runs"
-  --run_name "${RUN_NAME}"
-  --model_name "${MODEL_NAME}"
-  --image_size "${IMAGE_SIZE}"
+  "${PYTHON_BIN[@]}" train_multiview.py
   --epochs "${EPOCHS}"
-  --warmup_epochs "${WARMUP_EPOCHS}"
   --batch_size "${BATCH_SIZE}"
   --lr "${LR}"
-  --head_lr_multiplier "${HEAD_LR_MULTIPLIER}"
-  --weight_decay "${WEIGHT_DECAY}"
-  --num_workers "${NUM_WORKERS}"
   --dropout "${DROPOUT}"
+  --model_name "${MODEL_NAME}"
+  --img_size "${IMAGE_SIZE}"
+  --unfreeze_epoch "${UNFREEZE_EPOCH}"
   --patience "${PATIENCE}"
-  --seed "${SEED}"
-  --torch_home "${TORCH_HOME_DIR}"
+  --num_workers "${NUM_WORKERS}"
+  --consistency_lambda "${CONSISTENCY_LAMBDA}"
+  --output_dir "${OUTPUT_DIR}"
+  --train_csv "${TRAIN_CSV}"
+  --val_csv "${VAL_CSV}"
 )
 
 printf 'Running:'
